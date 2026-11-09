@@ -5,19 +5,50 @@
   const { clamp, lerp, randFloat: rand } = THREE.MathUtils;
   const $ = (id) => document.getElementById(id);
   const Y_AXIS = new V3(0, 1, 0);
+  const smooth = (k) => k * k * (3 - 2 * k);
 
   // ---------- Tuning ----------
   const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 200 };
   const HEAL = { banana: 40, medkit: 70 };
   const ARROW = { speed: 75, gravity: 6, cooldown: 0.45, damage: 1, bossDamage: 0.5 };
-  const ROCKET = { speed: 45, cooldown: 1.6, damage: 25, splash: 4.5, startAmmo: 5, bagAmmo: 3 };
-  const MONKEY = { total: 12, maxAlive: 4, hp: 1, speed: 5.2, damage: 7, attackCd: 1.0, reach: 1.3 };
-  const WOLF = { total: 6, maxAlive: 3, hp: 1, speed: 7.2, lungeSpeed: 15, damage: 11, attackCd: 1.2, reach: 1.5 };
-  const BOSS = { hp: 100, height: 5.4, speed: 4.2, slamDamage: 35, slamRadius: 6, rockDamage: 20 };
-  const MINIONS = { maxAlive: 3, interval: 7 };
-  const LEVEL = { corridorHalf: 14, barrier1: -150, barrier2: -300, gateZ: -398 };
+  const ROCKET = { speed: 45, cooldown: 1.6, damage: 25, splash: 4.5, startAmmo: 5, bagAmmo: 4 };
+  const MONKEY = { hp: 1, speed: 5.2, damage: 7, attackCd: 1.0, reach: 1.3 };
+  const BEASTS = {
+    wolf: { hp: 1, speed: 7.2, lungeSpeed: 15, lungeRange: 7, damage: 11, attackCd: 1.2, reach: 1.5, pitch: 1, drop: 0.3 },
+    lion: { hp: 2, speed: 6.6, lungeSpeed: 14, lungeRange: 9, damage: 16, attackCd: 1.3, reach: 2.0, pitch: 0.6, drop: 0.4 },
+    tiger: { hp: 2, speed: 8.2, lungeSpeed: 18, lungeRange: 10, damage: 13, attackCd: 1.1, reach: 1.9, pitch: 0.75, drop: 0.4 },
+  };
+  const KONG = { hp: 100, height: 5.4, speed: 4.2, slamDamage: 35, slamRadius: 6, rockDamage: 20 };
+  const DRAGON = {
+    hp: 150, flyHeight: 13, orbitR: 30, orbitSpeed: 0.3, flyTime: 12, groundTime: 9,
+    fireballSpeed: 24, fireballDamage: 15, breathDamage: 6, breathRange: 13,
+  };
+
+  // Walkable level: forest path → King Kong's clearing → second path → dragon's lair → exit gate.
+  const C1 = { x0: -14, x1: 14, z0: -306, z1: 3 };
   const ARENA = { x: 0, z: -350, r: 47 };
-  const PHASE_NAMES = ['Maymunlar', 'Kurtlar', 'King Kong'];
+  const C2 = { x0: -14, x1: 14, z0: -570, z1: -392 };
+  const LAIR = { x: 0, z: -615, r: 50 };
+  const REGIONS = [C1, ARENA, C2, LAIR];
+  const BARRIER_Z = [-150, -300, -398, -562];
+  const GATE_Z = -667;
+
+  const WAVES = {
+    monkeys: { types: ['monkey'], total: 12, maxAlive: 4, zMin: -147, zMax: -2, interval: [0.8, 1.8], next: 'wolves' },
+    wolves: { types: ['wolf'], total: 6, maxAlive: 3, zMin: -297, zMax: -153, interval: [1.0, 2.2], next: 'toArena' },
+    cats: { types: ['lion', 'tiger'], total: 8, maxAlive: 3, zMin: -559, zMax: -401, interval: [1.2, 2.4], next: 'toLair' },
+  };
+  const BOSS_FIGHTS = {
+    kong: { area: ARENA, minions: ['monkey', 'wolf'], interval: 7, maxAlive: 3 },
+    dragon: { area: LAIR, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2 },
+  };
+  const CHECKPOINTS = [
+    { name: 'Maymunlar', z: -3, phase: 'monkeys' },
+    { name: 'Kurtlar', z: -156, phase: 'wolves' },
+    { name: 'King Kong', z: -302, phase: 'toArena' },
+    { name: 'Aslanlar ve kaplanlar', z: -385, phase: 'cats' },
+    { name: 'Ejderha', z: -566, phase: 'toLair' },
+  ];
 
   // ---------- Save data (browser localStorage) ----------
   const SAVE_KEY = 'osimhenOrman.v1';
@@ -29,6 +60,7 @@
       if (d) {
         Object.assign(save, d);
         save.settings = Object.assign({ sound: true, sens: 1 }, d.settings);
+        save.checkpoint = clamp(save.checkpoint | 0, 0, CHECKPOINTS.length - 1);
       }
     } catch (e) { /* storage unavailable: play with defaults */ }
   }
@@ -84,33 +116,42 @@
   }
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(600, 900),
-    new THREE.MeshLambertMaterial({ map: repeatTexture(256, 150, 225, (g, s) => speckle(g, s, '#4b7430', 7000, [70, 40], 40, [18, 22])) })
+    new THREE.PlaneGeometry(600, 1100),
+    new THREE.MeshLambertMaterial({ map: repeatTexture(256, 150, 275, (g, s) => speckle(g, s, '#4b7430', 7000, [70, 40], 40, [18, 22])) })
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.z = -220;
+  ground.position.z = -330;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const dirtTex = (rx, ry) => repeatTexture(256, rx, ry, (g, s) => speckle(g, s, '#7a6243', 5000, [25, 15], 35, [25, 25]));
-  const pathGeo = new THREE.PlaneGeometry(5, 312, 2, 80);
-  pathGeo.rotateX(-Math.PI / 2);
-  pathGeo.translate(0, 0, -150);
-  {
-    const p = pathGeo.attributes.position;
-    for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) + Math.sin(p.getZ(i) * 0.045) * 3.5);
-  }
   const groundOverlay = (geo, map) => {
     const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     m.receiveShadow = true;
     scene.add(m);
     return m;
   };
-  groundOverlay(pathGeo, dirtTex(1.5, 90));
-  const clearing = new THREE.CircleGeometry(ARENA.r + 2, 64);
-  clearing.rotateX(-Math.PI / 2);
-  clearing.translate(ARENA.x, 0, ARENA.z);
-  groundOverlay(clearing, repeatTexture(256, 24, 24, (g, s) => speckle(g, s, '#6b6a3a', 6000, [35, 40], 35, [20, 25])));
+
+  function windingPath(zStart, zEnd) {
+    const len = zStart - zEnd;
+    const geo = new THREE.PlaneGeometry(5, len, 2, Math.ceil(len / 4));
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, 0, (zStart + zEnd) / 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) + Math.sin(p.getZ(i) * 0.045) * 3.5);
+    const tex = repeatTexture(256, 1.5, len / 3.5, (g, s) => speckle(g, s, '#7a6243', 5000, [25, 15], 35, [25, 25]));
+    groundOverlay(geo, tex);
+  }
+  windingPath(5, -307);
+  windingPath(-393, -567);
+
+  function clearing(area, texture) {
+    const geo = new THREE.CircleGeometry(area.r + 2, 64);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(area.x, 0, area.z);
+    groundOverlay(geo, texture);
+  }
+  clearing(ARENA, repeatTexture(256, 24, 24, (g, s) => speckle(g, s, '#6b6a3a', 6000, [35, 40], 35, [20, 25])));
+  clearing(LAIR, repeatTexture(256, 26, 26, (g, s) => speckle(g, s, '#3e3631', 7000, [10, 25], 25, [10, 22])));
 
   // ---------- Trees (instanced) ----------
   function seeded(a) {
@@ -152,33 +193,44 @@
     return nearBuf;
   }
 
-  function inPlayArea(x, z, margin) {
-    if (z > -306 && z < 6 && Math.abs(x) < LEVEL.corridorHalf + margin) return true;
-    if (Math.hypot(x - ARENA.x, z - ARENA.z) < ARENA.r + margin) return true;
-    return Math.abs(x) < 5 + margin && z < LEVEL.gateZ + 2 && z > LEVEL.gateZ - 14;
+  function inRegion(reg, x, z, margin) {
+    if (reg.r) return Math.hypot(x - reg.x, z - reg.z) < reg.r + margin;
+    return x > reg.x0 - margin && x < reg.x1 + margin && z > reg.z0 - margin && z < reg.z1 + margin;
   }
 
-  for (let i = 0; i < 3000; i++) {
-    const x = rr(-120, 120), z = rr(-490, 55);
+  function inPlayArea(x, z, margin) {
+    if (REGIONS.some((reg) => inRegion(reg, x, z, margin))) return true;
+    return Math.abs(x) < 5 + margin && z < GATE_Z + 2 && z > GATE_Z - 14;
+  }
+
+  for (let i = 0; i < 4500; i++) {
+    const x = rr(-120, 120), z = rr(-770, 55);
     if (inPlayArea(x, z, 1.2)) continue;
     addTree(x, z, rr(0.8, 1.5), rng() < 0.25 ? 'pine' : 'oak');
   }
-  for (let i = 0; i < 34; i++) {
-    const x = rr(-11, 11), z = rr(-295, -12);
-    if (Math.abs(z - LEVEL.barrier1) < 7 || Math.abs(x) < 2.5) continue;
-    addTree(x, z, rr(0.9, 1.3), 'oak');
+  for (const [z0, z1, avoid] of [[-12, -295, BARRIER_Z[0]], [-405, -555, null]]) {
+    for (let i = 0; i < 30; i++) {
+      const x = rr(-11, 11), z = rr(z1, z0);
+      if ((avoid && Math.abs(z - avoid) < 7) || Math.abs(x) < 2.5) continue;
+      addTree(x, z, rr(0.9, 1.3), 'oak');
+    }
   }
 
-  // Big arena trees: one of them hides the RPG-7 on a branch.
-  const bigTrees = [];
-  for (const deg of [5, 35, 62, 118, 145, 175, 205, 235, 305, 335]) {
-    const a = THREE.MathUtils.degToRad(deg + rr(-6, 6));
-    const r = rr(30, 40);
-    const t = addTree(ARENA.x + Math.cos(a) * r, ARENA.z + Math.sin(a) * r, 1.7, 'oak');
-    const toCenter = new V3(ARENA.x - t.x, 0, ARENA.z - t.z).normalize();
-    t.hang = new V3(t.x, 3.5, t.z).addScaledVector(toCenter, 2.3);
-    bigTrees.push(t);
+  // Big trees around each boss clearing; RPG-7 and rocket bags hang from their branches.
+  function bigTreeRing(area) {
+    const ring = [];
+    for (const deg of [5, 35, 62, 118, 145, 175, 205, 235, 305, 335]) {
+      const a = THREE.MathUtils.degToRad(deg + rr(-6, 6));
+      const r = rr(30, 40);
+      const t = addTree(area.x + Math.cos(a) * r, area.z + Math.sin(a) * r, 1.7, 'oak');
+      const toCenter = new V3(area.x - t.x, 0, area.z - t.z).normalize();
+      t.hang = new V3(t.x, 3.5, t.z).addScaledVector(toCenter, 2.3);
+      ring.push(t);
+    }
+    return ring;
   }
+  const arenaTrees = bigTreeRing(ARENA);
+  const lairTrees = bigTreeRing(LAIR);
 
   {
     const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 1, 7);
@@ -217,7 +269,7 @@
       scene.add(im);
     }
     const bark = Models.mat(0x4f3520);
-    for (const t of bigTrees) {
+    for (const t of [...arenaTrees, ...lairTrees]) {
       const dx = t.hang.x - t.x, dz = t.hang.z - t.z;
       const len = Math.hypot(dx, dz) + 0.4;
       const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.2, len, 6), bark);
@@ -228,17 +280,16 @@
     }
   }
 
-  // Bushes for ground detail (no collision)
+  // Bushes for ground detail, boulders around the dragon's lair (no collision)
   {
     const bushGeo = new THREE.IcosahedronGeometry(1, 0);
-    const bushes = new THREE.InstancedMesh(bushGeo, Models.mat(0xffffff, { flatShading: true }), 500);
+    const bushes = new THREE.InstancedMesh(bushGeo, Models.mat(0xffffff, { flatShading: true }), 700);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new V3(), sc = new V3(), col = new THREE.Color();
     let n = 0;
-    for (let i = 0; i < 2000 && n < 500; i++) {
-      const x = rr(-40, 40), z = rr(-420, 20);
-      const inside = inPlayArea(x, z, -1);
-      if (inside && rng() < 0.85) continue;
-      if (Math.abs(x) < 4 && z > -306) continue;
+    for (let i = 0; i < 3000 && n < 700; i++) {
+      const x = rr(-40, 40), z = rr(-690, 20);
+      if (inPlayArea(x, z, -1) && rng() < 0.85) continue;
+      if (Math.abs(x) < 4 && (z > -306 || (z < -393 && z > -567))) continue;
       const s = rr(0.4, 1.0);
       q.setFromAxisAngle(Y_AXIS, rng() * 6.28);
       m.compose(p.set(x, s * 0.35, z), q, sc.set(s * 1.3, s * 0.8, s * 1.3));
@@ -249,6 +300,20 @@
     bushes.count = n;
     bushes.castShadow = true;
     scene.add(bushes);
+
+    const boulderGeo = new THREE.DodecahedronGeometry(1, 0);
+    const boulderMat = Models.mat(0x5d5650, { flatShading: true });
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + rr(-0.1, 0.1);
+      if (Math.abs(Math.sin(a)) > 0.95) continue;
+      const r = rr(52, 60), s = rr(1.5, 3.2);
+      const b = new THREE.Mesh(boulderGeo, boulderMat);
+      b.position.set(LAIR.x + Math.cos(a) * r, s * 0.5, LAIR.z + Math.sin(a) * r);
+      b.scale.set(s, s * rr(0.6, 1), s);
+      b.rotation.set(rng() * 3, rng() * 3, 0);
+      b.castShadow = b.receiveShadow = true;
+      scene.add(b);
+    }
   }
 
   // ---------- Barriers (fallen logs) and the exit gate ----------
@@ -297,7 +362,7 @@
 
   function makeGate() {
     const g = new THREE.Group();
-    g.position.set(0, 0, LEVEL.gateZ);
+    g.position.set(0, 0, GATE_Z);
     scene.add(g);
     const stone = Models.mat(0x8c8b80, { flatShading: true }), wood = Models.mat(0x6b4423), iron = Models.mat(0x2e2e2e);
     const solid = (geo, mat, x, y, z) => {
@@ -356,7 +421,7 @@
         Sound.creak();
       },
       apply() {
-        const e = this.anim * this.anim * (3 - 2 * this.anim);
+        const e = smooth(this.anim);
         doors[0].rotation.y = 1.75 * e;
         doors[1].rotation.y = -1.75 * e;
       },
@@ -369,13 +434,14 @@
     };
   }
 
-  const barriers = [makeBarrier(LEVEL.barrier1), makeBarrier(LEVEL.barrier2)];
+  const barriers = BARRIER_Z.map(makeBarrier);
   const gate = makeGate();
 
   // ---------- Particles and transient effects ----------
   const particleGeo = new THREE.IcosahedronGeometry(1, 0);
   const PMAT = {
     fire: new THREE.MeshBasicMaterial({ color: 0xffa62b }),
+    flame: new THREE.MeshBasicMaterial({ color: 0xff5a1a }),
     spark: new THREE.MeshBasicMaterial({ color: 0xffe45c }),
     smoke: Models.mat(0x8f8f8f),
     dark: Models.mat(0x3a3a3a),
@@ -387,14 +453,15 @@
   const particles = [], particlePool = [];
 
   function emit(kind, pos, count, o = {}) {
-    const { speed = 4, up = 2, life = 0.8, size = 0.15, gravity = 9.8, grow = false, spread = 0.2 } = o;
-    for (let i = 0; i < count && particles.length < 500; i++) {
+    const { speed = 4, up = 2, life = 0.8, size = 0.15, gravity = 9.8, grow = false, spread = 0.2, push = null } = o;
+    for (let i = 0; i < count && particles.length < 600; i++) {
       const m = particlePool.pop() || new THREE.Mesh(particleGeo);
       m.material = PMAT[kind];
       m.position.set(pos.x + rand(-spread, spread), pos.y + rand(-spread, spread) * 0.5, pos.z + rand(-spread, spread));
       m.rotation.set(Math.random() * 6, Math.random() * 6, 0);
       const vel = new V3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(speed * rand(0.3, 1));
       vel.y += up;
+      if (push) vel.add(push);
       scene.add(m);
       particles.push({ m, vel, life: life * rand(0.6, 1.4), age: 0, size, gravity, grow });
     }
@@ -453,6 +520,15 @@
     });
   }
 
+  function fireBurst(p, size) {
+    addEffect(unitSphere, 0xffb347, p, 0.45, (m, k) => {
+      m.scale.setScalar(0.4 + size * k);
+      m.material.opacity = 0.95 * (1 - k);
+    });
+    emit('fire', p, 20, { speed: 2 * size, up: 3, size: 0.3, life: 0.5, gravity: 2 });
+    emit('smoke', p, 10, { speed: 3, up: 2.5, size: 0.6, life: 1.4, gravity: -0.6, grow: true, spread: 0.6 });
+  }
+
   // ---------- Player ----------
   const player = {
     rig: Models.player(),
@@ -496,21 +572,33 @@
     }
   }
 
+  // Keeps p inside the walkable regions, south of the first closed log pile.
   function clampToLevel(p, radius) {
-    if (p.z > 3) p.z = 3;
-    if (!barriers[0].open && p.z < LEVEL.barrier1 + 1.6) p.z = LEVEL.barrier1 + 1.6;
-    if (!barriers[1].open && p.z < LEVEL.barrier2 + 1.6) p.z = LEVEL.barrier2 + 1.6;
-    const dx = p.x - ARENA.x, dz = p.z - ARENA.z, d = Math.hypot(dx, dz);
-    const lim = ARENA.r - radius;
-    if (p.z > -306) {
-      if (d > lim) p.x = clamp(p.x, -LEVEL.corridorHalf + radius, LEVEL.corridorHalf - radius);
-    } else if (gate.isOpen && gate.anim > 0.6 && Math.abs(p.x) < 2.6 && p.z < LEVEL.gateZ + 4) {
+    const closed = barriers.find((b) => !b.open);
+    if (closed && p.z < closed.z + 1.6) p.z = closed.z + 1.6;
+    if (gate.isOpen && gate.anim > 0.6 && Math.abs(p.x) < 2.6 && p.z < GATE_Z + 4) {
       p.x = clamp(p.x, -2.6 + radius, 2.6 - radius);
-      p.z = Math.max(p.z, LEVEL.gateZ - 8);
-    } else if (d > lim) {
-      p.x = ARENA.x + (dx / d) * lim;
-      p.z = ARENA.z + (dz / d) * lim;
+      p.z = Math.max(p.z, GATE_Z - 8);
+      return;
     }
+    let bx = p.x, bz = p.z, best = Infinity;
+    for (const reg of REGIONS) {
+      let qx, qz;
+      if (reg.r) {
+        const dx = p.x - reg.x, dz = p.z - reg.z, d = Math.hypot(dx, dz), lim = reg.r - radius;
+        if (d <= lim) return;
+        qx = reg.x + (dx / d) * lim;
+        qz = reg.z + (dz / d) * lim;
+      } else {
+        qx = clamp(p.x, reg.x0 + radius, reg.x1 - radius);
+        qz = clamp(p.z, reg.z0 + radius, reg.z1 - radius);
+        if (qx === p.x && qz === p.z) return;
+      }
+      const d2 = (qx - p.x) ** 2 + (qz - p.z) ** 2;
+      if (d2 < best) { best = d2; bx = qx; bz = qz; }
+    }
+    p.x = bx;
+    p.z = bz;
   }
 
   function updatePlayer(dt) {
@@ -559,20 +647,25 @@
     if (text) promptEl.textContent = text;
   }
 
+  function waveLeft(name) {
+    return WAVES[name].total - (phase === name ? phaseKills : 0);
+  }
+
+  const BARRIER_HINTS = [
+    () => `Kütükler kapalı! Önce bütün maymunları yen — kalan: ${waveLeft('monkeys')}`,
+    () => `Kütükler kapalı! Önce bütün kurtları yen — kalan: ${waveLeft('wolves')}`,
+    () => "Kütükler kapalı! Önce King Kong'u yen",
+    () => `Kütükler kapalı! Önce bütün aslan ve kaplanları yen — kalan: ${waveLeft('cats')}`,
+  ];
+
   // Explains what the player can do here: take the hanging item, or why a log pile / the gate is still closed.
   function promptText() {
     if (hanging && Math.hypot(player.pos.x - hanging.pos.x, player.pos.z - hanging.pos.z) < 2.8) {
       return hanging.kind === 'rpg' ? "E — RPG-7'yi al" : 'E — Roketleri al';
     }
-    if (!barriers[0].open && player.pos.z < LEVEL.barrier1 + 6) {
-      return `Kütükler kapalı! Önce bütün maymunları yen — kalan: ${MONKEY.total - phaseKills}`;
-    }
-    if (!barriers[1].open && player.pos.z < LEVEL.barrier2 + 6) {
-      return `Kütükler kapalı! Önce bütün kurtları yen — kalan: ${WOLF.total - phaseKills}`;
-    }
-    if (!gate.isOpen && player.pos.z < LEVEL.gateZ + 8 && Math.abs(player.pos.x) < 8) {
-      return "Kapı kapalı! Önce King Kong'u yen";
-    }
+    const i = barriers.findIndex((b) => !b.open);
+    if (i >= 0 && player.pos.z < barriers[i].z + 6) return BARRIER_HINTS[i]();
+    if (!gate.isOpen && player.pos.z < GATE_Z + 8 && Math.abs(player.pos.x) < 8) return 'Kapı kapalı! Önce ejderhayı yen';
     return '';
   }
 
@@ -604,6 +697,10 @@
     return t >= 0 && t <= 1 ? t : -1;
   }
 
+  function livingBosses() {
+    return [kong, dragon].filter((b) => b && b.state !== 'dead');
+  }
+
   function firstHit(a, b) {
     hit.t = Infinity;
     hit.kind = null;
@@ -618,7 +715,7 @@
       if (e.state === 'dead') continue;
       for (const s of e.sph) consider(segSphereT(a, segAB, len2, s.c, s.r), 'enemy', e);
     }
-    if (boss && boss.state !== 'dead') {
+    for (const boss of livingBosses()) {
       for (const s of boss.sph) consider(segSphereT(a, segAB, len2, s.c, s.r), 'boss', boss);
     }
     for (const t of treesInBox(a.x, a.z, b.x, b.z)) {
@@ -640,7 +737,7 @@
   }
 
   // ---------- Weapons ----------
-  const arrows = [], stuckArrows = [], rockets = [], rocks = [];
+  const arrows = [], stuckArrows = [], rockets = [], rocks = [], fireballs = [];
   let arrowBossNoticeT = 0;
 
   function orientArrow(mesh, vel) {
@@ -701,11 +798,12 @@
           stick(a.mesh, h.obj.root);
           Sound.thunk();
         } else if (h.kind === 'boss') {
-          damageBoss(ARROW.bossDamage, false);
+          const boss = h.obj;
+          boss.hurt(ARROW.bossDamage, false);
           stick(a.mesh, boss.root);
           Sound.thunk();
           if (arrowBossNoticeT <= 0) {
-            toast("Oklar King Kong'a işlemiyor!", player.hasRpg ? 'RPG-7 kullan — [2] tuşu' : "Ağaçlarda asılı RPG-7'yi bul!", 2.2);
+            toast(`Oklar ${boss.title} işlemiyor!`, player.hasRpg ? 'RPG-7 kullan — [2] tuşu' : "Ağaçlarda asılı RPG-7'yi bul!", 2.2);
             arrowBossNoticeT = 8;
           }
         } else {
@@ -737,8 +835,9 @@
     Sound.launch();
     shake(0.2);
     emit('smoke', player.rig.rpgHolder.getWorldPosition(new V3()).addScaledVector(dir, -2.2), 10, { speed: 2, up: 0.5, gravity: -0.5, size: 0.35, life: 0.9, grow: true });
-    if (player.rockets === 0 && boss && boss.state !== 'dead' && !hanging) {
-      hangItem('ammo');
+    const fight = BOSS_FIGHTS[phase];
+    if (player.rockets === 0 && fight && livingBosses().length && !hanging) {
+      hangItem('ammo', phase === 'dragon' ? lairTrees : arenaTrees);
       setTimeout(() => toast('Roketler bitti!', 'Ağaçlardan birinde yeni roketler asılı', 3), 900);
     }
   }
@@ -768,22 +867,18 @@
   function explode(p, h) {
     Sound.explosion();
     shake(clamp(1.2 - p.distanceTo(player.pos) / 40, 0.15, 1));
-    addEffect(unitSphere, 0xffb347, p, 0.45, (m, k) => {
-      m.scale.setScalar(0.4 + 4 * k);
-      m.material.opacity = 0.95 * (1 - k);
-    });
-    emit('fire', p, 26, { speed: 9, up: 3, size: 0.3, life: 0.5, gravity: 2 });
+    fireBurst(p, 4);
+    emit('fire', p, 10, { speed: 9, up: 3, size: 0.3, life: 0.5, gravity: 2 });
     emit('spark', p, 14, { speed: 14, up: 4, size: 0.08, life: 0.6 });
-    emit('smoke', p, 16, { speed: 3, up: 2.5, size: 0.7, life: 1.6, gravity: -0.6, grow: true, spread: 0.8 });
     emit('dust', p, 14, { speed: 7, up: 5, size: 0.18, life: 1.0 });
     if (p.y < 0.5) shockRing(new V3(p.x, 0.08, p.z), 5, 0xffd27a);
 
-    if (boss && boss.state !== 'dead') {
-      if (h && h.kind === 'boss') damageBoss(ROCKET.damage, true);
+    for (const boss of livingBosses()) {
+      if (h && h.obj === boss) boss.hurt(ROCKET.damage, true);
       else {
-        const torso = boss.sph[1];
-        const d = p.distanceTo(torso.c) - torso.r;
-        if (d < ROCKET.splash) damageBoss(ROCKET.damage * 0.6 * (1 - Math.max(0, d) / ROCKET.splash), true);
+        const core = boss.sph[0];
+        const d = p.distanceTo(core.c) - core.r;
+        if (d < ROCKET.splash) boss.hurt(ROCKET.damage * 0.6 * (1 - Math.max(0, d) / ROCKET.splash), true);
       }
     }
     for (const e of enemies) {
@@ -792,35 +887,36 @@
     if (p.distanceTo(player.pos) < 3.5) damagePlayer(15, p);
   }
 
-  // ---------- Enemies: monkeys and wolves ----------
+  // ---------- Enemies: monkeys and four-legged beasts ----------
   const enemies = [];
-  const HIT_SPHERES = {
-    monkey: [[0, 0.75, 0, 0.42], [0, 1.2, -0.08, 0.27]],
-    wolf: [[0, 0.74, 0.15, 0.42], [0, 0.8, -0.45, 0.36], [0, 0.98, -0.75, 0.25]],
-  };
+  const MONKEY_SPHERES = [[0, 0.75, 0, 0.42], [0, 1.2, -0.08, 0.27]];
+  const BEAST_SPHERES = [[0, 0.74, 0.15, 0.42], [0, 0.8, -0.45, 0.36], [0, 0.98, -0.75, 0.25]];
 
   function spawnEnemy(type, x, z, fromTree, counts) {
-    const m = type === 'monkey' ? Models.monkey() : Models.wolf();
+    const isMonkey = type === 'monkey';
+    const m = isMonkey ? Models.monkey() : Models.beast(type);
+    const scale = isMonkey ? 1 : m.scale;
     m.root.position.set(x, fromTree ? 6.5 : 0, z);
     scene.add(m.root);
     const e = {
-      type, m, root: m.root, pos: m.root.position,
-      hp: type === 'monkey' ? MONKEY.hp : WOLF.hp,
+      type, m, root: m.root, pos: m.root.position, scale,
+      stats: isMonkey ? MONKEY : BEASTS[type],
       state: fromTree ? 'fall' : 'chase', vy: 0, yaw: 0,
       cd: 0.6, lungeCd: rand(0.5, 1.5), lungeT: 0, lungeDir: new V3(), bit: false,
       t: Math.random() * 10, flash: 0, deadT: 0, counts,
-      sph: HIT_SPHERES[type].map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz), c: new V3(), r })),
+      sph: (isMonkey ? MONKEY_SPHERES : BEAST_SPHERES).map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz).multiplyScalar(scale), c: new V3(), r: r * scale })),
     };
+    e.hp = e.stats.hp;
     e.yaw = Math.atan2(-(player.pos.x - x), -(player.pos.z - z));
     updateSpheres(e);
     enemies.push(e);
-    if (type === 'monkey') Sound.screech();
-    else Sound.growl();
+    if (isMonkey) Sound.screech();
+    else Sound.growl(e.stats.pitch);
     return e;
   }
 
-  function updateSpheres(e, scale = 1) {
-    for (const s of e.sph) s.c.copy(s.off).multiplyScalar(scale).applyAxisAngle(Y_AXIS, e.yaw).add(e.pos);
+  function updateSpheres(e) {
+    for (const s of e.sph) s.c.copy(s.off).applyAxisAngle(Y_AXIS, e.yaw).add(e.pos);
   }
 
   function hitEnemy(e, dmg, dir) {
@@ -829,7 +925,7 @@
     e.flash = 0.15;
     if (dir) e.pos.addScaledVector(dir.clone().setY(0), 0.35);
     if (e.hp <= 0) killEnemy(e);
-    else if (e.type === 'wolf') Sound.growl();
+    else if (e.type !== 'monkey') Sound.growl(e.stats.pitch);
   }
 
   function killEnemy(e) {
@@ -837,10 +933,11 @@
     e.deadT = 0;
     e.pos.y = 0;
     if (e.type === 'monkey') Sound.monkeyDie();
-    else Sound.beastDie();
+    else Sound.beastDie(e.stats.pitch);
     if (e.counts) phaseKills++;
-    const drop = e.type === 'monkey' ? (Math.random() < 0.4 ? 'banana' : null) : (Math.random() < 0.3 ? 'medkit' : null);
-    if (drop) dropPickup(drop, e.pos.x, e.pos.z);
+    if (e.type === 'monkey') {
+      if (Math.random() < 0.4) dropPickup('banana', e.pos.x, e.pos.z);
+    } else if (Math.random() < e.stats.drop) dropPickup('medkit', e.pos.x, e.pos.z);
   }
 
   function removeEnemy(e, poof) {
@@ -863,6 +960,7 @@
       return;
     }
 
+    const s = e.stats;
     const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z;
     const dist = Math.hypot(dx, dz) || 0.001;
     let speed = 0;
@@ -878,31 +976,31 @@
         emit('leaf', e.pos.clone().setY(0.3), 6, { speed: 2, up: 2, size: 0.07 });
       }
     } else if (e.type === 'monkey') {
-      if (dist > MONKEY.reach) speed = MONKEY.speed;
+      if (dist > s.reach) speed = s.speed;
       else if (e.cd <= 0) {
-        damagePlayer(MONKEY.damage, e.pos);
-        e.cd = MONKEY.attackCd;
+        damagePlayer(s.damage, e.pos);
+        e.cd = s.attackCd;
         Sound.screech();
       }
     } else if (e.state === 'lunge') {
       e.lungeT -= dt;
-      e.pos.addScaledVector(e.lungeDir, WOLF.lungeSpeed * dt);
-      if (!e.bit && dist < WOLF.reach + 0.3) {
-        damagePlayer(WOLF.damage, e.pos);
+      e.pos.addScaledVector(e.lungeDir, s.lungeSpeed * dt);
+      if (!e.bit && dist < s.reach + 0.3) {
+        damagePlayer(s.damage, e.pos);
         e.bit = true;
       }
       if (e.lungeT <= 0) e.state = 'chase';
-    } else if (dist < 7 && dist > 2.2 && e.lungeCd <= 0) {
+    } else if (dist < s.lungeRange && dist > 2.2 && e.lungeCd <= 0) {
       e.state = 'lunge';
       e.lungeT = 0.35;
       e.lungeDir.set(dx / dist, 0, dz / dist);
       e.bit = false;
       e.lungeCd = rand(1.8, 2.6);
-      Sound.growl();
-    } else if (dist > WOLF.reach) speed = WOLF.speed;
+      Sound.growl(s.pitch);
+    } else if (dist > s.reach) speed = s.speed;
     else if (e.cd <= 0) {
-      damagePlayer(WOLF.damage, e.pos);
-      e.cd = WOLF.attackCd;
+      damagePlayer(s.damage, e.pos);
+      e.cd = s.attackCd;
     }
 
     if (speed > 0) {
@@ -917,14 +1015,15 @@
     for (const o of enemies) {
       if (o === e || o.state === 'dead') continue;
       const ox = e.pos.x - o.pos.x, oz = e.pos.z - o.pos.z, d = Math.hypot(ox, oz);
-      if (d < 1 && d > 1e-4) {
-        e.pos.x += (ox / d) * (1 - d) * 0.5;
-        e.pos.z += (oz / d) * (1 - d) * 0.5;
+      const min = 0.5 * (e.scale + o.scale);
+      if (d < min && d > 1e-4) {
+        e.pos.x += (ox / d) * (min - d) * 0.5;
+        e.pos.z += (oz / d) * (min - d) * 0.5;
       }
     }
     if (e.state !== 'fall') {
-      collideTrees(e.pos, 0.45);
-      clampToLevel(e.pos, 0.45);
+      collideTrees(e.pos, 0.45 * e.scale);
+      clampToLevel(e.pos, 0.45 * e.scale);
     }
     updateSpheres(e);
     animateEnemy(e, speed > 0 || e.state === 'lunge', dist);
@@ -945,7 +1044,7 @@
       m.arms[1].rotation.x = attacking ? 2.2 - Math.sin(e.t * 16) * 0.6 : Math.sin(p) * 1.1;
       m.body.position.y = moving ? Math.abs(Math.sin(p)) * 0.18 : 0;
     } else {
-      const p = e.t * (e.state === 'lunge' ? 22 : 15);
+      const p = e.t * (e.state === 'lunge' ? 22 : 15) / e.scale;
       const a = moving ? 0.7 : 0;
       m.legs[0].rotation.x = Math.sin(p) * a;
       m.legs[1].rotation.x = Math.sin(p + 0.4) * a;
@@ -983,11 +1082,12 @@
     }
   }
 
-  // The RPG-7 (or a rocket bag) hangs from a branch of one of the big arena trees.
+  // The RPG-7 (or a rocket bag) hangs from a branch of one of the big trees around a boss clearing.
   let hanging = null, lastHangTree = null;
 
-  function hangItem(kind) {
-    const choices = bigTrees.filter((t) => t !== lastHangTree);
+  function hangItem(kind, treeRing) {
+    if (hanging) hanging.group.removeFromParent();
+    const choices = treeRing.filter((t) => t !== lastHangTree);
     const tree = choices[Math.floor(Math.random() * choices.length)];
     lastHangTree = tree;
     const g = new THREE.Group();
@@ -1010,8 +1110,8 @@
     if (!hanging || Math.hypot(player.pos.x - hanging.pos.x, player.pos.z - hanging.pos.z) >= 2.8) return;
     if (hanging.kind === 'rpg') {
       player.hasRpg = true;
-      player.rockets = ROCKET.startAmmo;
-      toast('RPG-7 senin!', "Şimdi King Kong'u vur! [1] yay · [2] RPG-7", 3);
+      player.rockets = Math.max(player.rockets, ROCKET.startAmmo);
+      toast('RPG-7 senin!', 'Şimdi vur! [1] yay · [2] RPG-7', 3);
     } else {
       player.rockets += ROCKET.bagAmmo;
       toast(`+${ROCKET.bagAmmo} roket`, '', 1.6);
@@ -1029,64 +1129,77 @@
     $('crosshair').classList.toggle('rpg', w === 'rpg');
   }
 
-  // ---------- King Kong ----------
-  let boss = null;
+  // ---------- Bosses ----------
+  // A boss has: title, name, hp, maxHp, state, root, sph (sph[0] is the core used for splash), hurt(dmg, heavy).
+  let kong = null, dragon = null;
 
-  function spawnBoss() {
+  function setState(b, s) {
+    b.state = s;
+    b.stateT = 0;
+  }
+
+  function bossDown(b, title) {
+    setState(b, 'dead');
+    bossDeadT = 0;
+    for (const e of enemies.slice()) if (e.state !== 'dead') removeEnemy(e, true);
+    toast(title, '', 2.5);
+  }
+
+  function faceToward(b, tx, tz, dt, rate) {
+    const target = Math.atan2(-tx, -tz);
+    const diff = Math.atan2(Math.sin(target - b.yaw), Math.cos(target - b.yaw));
+    b.yaw += diff * Math.min(1, dt * rate);
+    b.root.rotation.y = b.yaw;
+  }
+
+  function clampInto(p, area, margin) {
+    const dx = p.x - area.x, dz = p.z - area.z, d = Math.hypot(dx, dz), lim = area.r - margin;
+    if (d > lim) {
+      p.x = area.x + (dx / d) * lim;
+      p.z = area.z + (dz / d) * lim;
+    }
+  }
+
+  // ----- King Kong -----
+  function spawnKong() {
     const m = Models.gorilla();
-    const S = BOSS.height / Models.GORILLA_HEIGHT;
+    const S = KONG.height / Models.GORILLA_HEIGHT;
     m.root.scale.setScalar(S);
     m.root.rotation.order = 'YXZ';
     m.root.position.set(ARENA.x, 0, ARENA.z - 28);
     m.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(m.root);
-    boss = {
-      m, root: m.root, pos: m.root.position, S,
-      hp: BOSS.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0,
+    kong = {
+      title: "King Kong'a", name: 'KING KONG', m, root: m.root, pos: m.root.position,
+      hp: KONG.hp, maxHp: KONG.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0,
       throwCd: 4, beatCd: 12, slamCenter: new V3(),
-      sph: [[0, 0.3, 0, 0.42], [0, 1.05, 0, 0.58], [0, 1.7, -0.12, 0.3]].map(([x, y, z, r]) => ({ off: new V3(x, y, z), c: new V3(), r: r * S })),
+      sph: [[0, 1.05, 0, 0.58], [0, 0.3, 0, 0.42], [0, 1.7, -0.12, 0.3]].map(([x, y, z, r]) => ({ off: new V3(x, y, z).multiplyScalar(S), c: new V3(), r: r * S })),
+      hurt(d, heavy) {
+        if (this.state === 'dead') return;
+        this.hp = Math.max(0, this.hp - d);
+        this.flash = heavy ? 0.3 : 0.08;
+        if (this.hp <= 0) {
+          bossDown(this, 'King Kong yıkılıyor!');
+          Sound.roar();
+        } else if (heavy) {
+          setState(this, 'stagger');
+          Sound.roar();
+        }
+      },
     };
-    updateSpheres(boss, S);
+    updateSpheres(kong);
     Sound.roar();
     setTimeout(() => Sound.chestBeat(), 600);
   }
 
-  function setBossState(s) {
-    boss.state = s;
-    boss.stateT = 0;
-  }
-
-  function damageBoss(d, heavy) {
-    if (!boss || boss.state === 'dead') return;
-    boss.hp = Math.max(0, boss.hp - d);
-    boss.flash = heavy ? 0.3 : 0.08;
-    if (boss.hp <= 0) {
-      setBossState('dead');
-      Sound.roar();
-      bossDeadT = 0;
-      for (const e of enemies.slice()) if (e.state !== 'dead') removeEnemy(e, true);
-      toast('King Kong yıkılıyor!', '', 2.5);
-    } else if (heavy) {
-      setBossState('stagger');
-      Sound.roar();
-    }
-  }
-
-  function updateBoss(dt) {
-    const b = boss, m = b.m;
+  function updateKong(dt) {
+    const b = kong, m = b.m;
     b.t += dt;
     b.stateT += dt;
     if (b.flash > 0) b.flash -= dt;
     for (const fm of m.flashMats) fm.emissive.setHex(b.flash > 0 ? 0x880000 : 0);
     const dx = player.pos.x - b.pos.x, dz = player.pos.z - b.pos.z;
     const dist = Math.hypot(dx, dz) || 0.001;
-    const turn = (rate) => {
-      const target = Math.atan2(-dx, -dz);
-      let diff = target - b.yaw;
-      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      b.yaw += diff * Math.min(1, dt * rate);
-      b.root.rotation.y = b.yaw;
-    };
     const armX = (l, r, k = 10) => {
       m.arms[0].rotation.x += (l - m.arms[0].rotation.x) * Math.min(1, dt * k);
       m.arms[1].rotation.x += (r - m.arms[1].rotation.x) * Math.min(1, dt * k);
@@ -1098,22 +1211,22 @@
     switch (b.state) {
       case 'intro':
       case 'beat': {
-        turn(3);
+        faceToward(b, dx, dz, dt, 3);
         const s = Math.sin(b.t * 18);
         m.arms[0].rotation.set(1.6 + s * 0.35, 0, 0.55);
         m.arms[1].rotation.set(1.6 - s * 0.35, 0, -0.55);
         m.mouth.scale.y = 3;
         if (b.stateT > (b.state === 'intro' ? 3 : 1.7)) {
-          setBossState('chase');
+          setState(b, 'chase');
           b.beatCd = rand(10, 14);
         }
         break;
       }
       case 'chase': {
-        turn(4);
+        faceToward(b, dx, dz, dt, 4);
         if (dist > 4.5) {
-          b.pos.x += (dx / dist) * BOSS.speed * dt;
-          b.pos.z += (dz / dist) * BOSS.speed * dt;
+          b.pos.x += (dx / dist) * KONG.speed * dt;
+          b.pos.z += (dz / dist) * KONG.speed * dt;
         }
         const p = b.t * 4;
         m.legs[0].rotation.x = Math.sin(p) * 0.45;
@@ -1123,36 +1236,36 @@
         b.throwCd -= dt;
         b.beatCd -= dt;
         if (dist < 5.5) {
-          setBossState('slamWind');
+          setState(b, 'slamWind');
           Sound.growl();
-        } else if (dist > 12 && b.throwCd <= 0) setBossState('throwWind');
+        } else if (dist > 12 && b.throwCd <= 0) setState(b, 'throwWind');
         else if (b.beatCd <= 0) {
-          setBossState('beat');
+          setState(b, 'beat');
           Sound.roar();
           Sound.chestBeat();
         }
         break;
       }
       case 'slamWind':
-        turn(2);
+        faceToward(b, dx, dz, dt, 2);
         armX(Math.PI * 0.95, Math.PI * 0.95, 6);
         m.mouth.scale.y = 2.5;
-        if (b.stateT > 0.9) doSlam();
+        if (b.stateT > 0.9) kongSlam();
         break;
       case 'throwWind':
-        turn(5);
+        faceToward(b, dx, dz, dt, 5);
         armX(0.3, -2.5, 8);
-        if (b.stateT > 0.8) throwRock();
+        if (b.stateT > 0.8) kongThrow();
         break;
       case 'recover':
         armX(0.55, 0.55, 14);
-        if (b.stateT > 0.9) setBossState('chase');
+        if (b.stateT > 0.9) setState(b, 'chase');
         break;
       case 'stagger':
         m.torso.rotation.x = 0.3 * Math.sin(Math.min(1, b.stateT / 0.7) * Math.PI);
         m.mouth.scale.y = 3;
         armX(1.2, 1.2, 8);
-        if (b.stateT > 0.7) setBossState('chase');
+        if (b.stateT > 0.7) setState(b, 'chase');
         break;
       case 'dead': {
         const k = Math.min(1, b.stateT / 1.8);
@@ -1168,36 +1281,32 @@
       }
     }
     if (b.state !== 'dead') {
-      const dc = Math.hypot(b.pos.x - ARENA.x, b.pos.z - ARENA.z);
-      if (dc > ARENA.r - 3) {
-        b.pos.x = ARENA.x + ((b.pos.x - ARENA.x) / dc) * (ARENA.r - 3);
-        b.pos.z = ARENA.z + ((b.pos.z - ARENA.z) / dc) * (ARENA.r - 3);
-      }
-      updateSpheres(b, b.S);
+      clampInto(b.pos, ARENA, 3);
+      updateSpheres(b);
     }
   }
 
-  function doSlam() {
-    const b = boss;
+  function kongSlam() {
+    const b = kong;
     const fx = -Math.sin(b.yaw), fz = -Math.cos(b.yaw);
     b.slamCenter.set(b.pos.x + fx * 3, 0.1, b.pos.z + fz * 3);
     Sound.slam();
     shake(0.9);
-    shockRing(b.slamCenter, BOSS.slamRadius, 0xe8d3a8);
+    shockRing(b.slamCenter, KONG.slamRadius, 0xe8d3a8);
     emit('dust', b.slamCenter, 30, { speed: 9, up: 3, spread: 1.5, size: 0.35, life: 1.0 });
     emit('rock', b.slamCenter, 10, { speed: 6, up: 6, size: 0.18, life: 1.2 });
     const d = Math.hypot(player.pos.x - b.slamCenter.x, player.pos.z - b.slamCenter.z);
-    if (d < BOSS.slamRadius && player.pos.y < 0.6) {
-      damagePlayer(BOSS.slamDamage, b.slamCenter);
+    if (d < KONG.slamRadius && player.pos.y < 0.6) {
+      damagePlayer(KONG.slamDamage, b.slamCenter);
       player.vel.y = 5;
       player.onGround = false;
     }
-    setBossState('recover');
+    setState(b, 'recover');
   }
 
   const rockGeo = new THREE.DodecahedronGeometry(0.6, 0);
-  function throwRock() {
-    const b = boss;
+  function kongThrow() {
+    const b = kong;
     const hand = b.m.arms[1].localToWorld(new V3(0, -1.04, 0));
     const target = player.pos.clone().add(new V3(player.vel.x * 0.5, 1, player.vel.z * 0.5));
     const T = clamp(hand.distanceTo(target) / 20, 0.8, 2.2);
@@ -1209,7 +1318,7 @@
     scene.add(mesh);
     rocks.push({ mesh, vel, spin: new V3(rand(-5, 5), rand(-5, 5), 0) });
     Sound.throwRock();
-    setBossState('recover');
+    setState(b, 'recover');
   }
 
   function updateRocks(dt) {
@@ -1222,8 +1331,8 @@
       const p = r.mesh.position;
       const dPlayer = Math.hypot(p.x - player.pos.x, p.y - (player.pos.y + 1), p.z - player.pos.z);
       if (dPlayer < 1.3 || p.y < 0.5) {
-        if (dPlayer < 1.3) damagePlayer(BOSS.rockDamage, p);
-        else if (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 2.2) damagePlayer(BOSS.rockDamage / 2, p);
+        if (dPlayer < 1.3) damagePlayer(KONG.rockDamage, p);
+        else if (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 2.2) damagePlayer(KONG.rockDamage / 2, p);
         Sound.thunk();
         emit('rock', p, 10, { speed: 5, up: 3, size: 0.2, life: 1.0 });
         emit('dust', p, 8, { speed: 3, up: 1, size: 0.3, life: 0.8 });
@@ -1233,10 +1342,234 @@
     }
   }
 
+  // ----- Dragon: circles the lair spitting fireballs, then lands to breathe fire -----
+  function spawnDragon() {
+    const m = Models.dragon();
+    m.root.rotation.order = 'YXZ';
+    m.root.position.set(LAIR.x, 28, LAIR.z - 60);
+    m.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(m.root);
+    dragon = {
+      title: 'Ejderhaya', name: 'EJDERHA', m, root: m.root, pos: m.root.position,
+      hp: DRAGON.hp, maxHp: DRAGON.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0, vy: 0,
+      orbitA: -Math.PI / 2, fireCd: 3, breathCd: 1, breathTick: 0, groundT: 0, jawT: 0,
+      landFrom: new V3(), landTo: new V3(),
+      sph: [[0, 2.4, 0, 1.8], [0, 3.6, -2.8, 0.8], [0, 4.4, -3.7, 0.9], [0, 2.3, 2.9, 0.8]].map(([x, y, z, r]) => ({ off: new V3(x, y, z), c: new V3(), r })),
+      hurt(d, heavy) {
+        if (this.state === 'dead') return;
+        this.hp = Math.max(0, this.hp - d);
+        this.flash = heavy ? 0.3 : 0.08;
+        if (this.hp <= 0) {
+          bossDown(this, 'Ejderha düşüyor!');
+          this.vy = 0;
+          Sound.roar(1.4);
+        } else if (heavy) {
+          Sound.roar(1.4);
+          if (this.state === 'ground' || this.state === 'breath') setState(this, 'stagger');
+        }
+      },
+    };
+    updateSpheres(dragon);
+    Sound.roar(1.4);
+  }
+
+  function dragonFireball() {
+    const d = dragon;
+    const from = d.m.mouth.getWorldPosition(new V3());
+    const target = player.pos.clone().add(new V3(player.vel.x * 0.6, 1, player.vel.z * 0.6));
+    const vel = target.sub(from).normalize().multiplyScalar(DRAGON.fireballSpeed);
+    const mesh = new THREE.Mesh(unitSphere, PMAT.flame);
+    mesh.scale.setScalar(0.5);
+    mesh.position.copy(from);
+    scene.add(mesh);
+    fireballs.push({ mesh, vel, life: 0, trailT: 0 });
+    d.jawT = 0.35;
+    Sound.fireball();
+  }
+
+  function updateFireballs(dt) {
+    for (let i = fireballs.length - 1; i >= 0; i--) {
+      const f = fireballs[i];
+      f.life += dt;
+      f.mesh.position.addScaledVector(f.vel, dt);
+      const p = f.mesh.position;
+      f.trailT -= dt;
+      if (f.trailT <= 0) {
+        f.trailT = 0.03;
+        emit('fire', p, 2, { speed: 1, up: 0.5, gravity: -1, size: 0.25, life: 0.4, spread: 0.2 });
+      }
+      const dPlayer = Math.hypot(p.x - player.pos.x, p.y - (player.pos.y + 1), p.z - player.pos.z);
+      if (dPlayer < 1.4 || p.y < 0.3 || f.life > 4) {
+        if (dPlayer < 1.4) damagePlayer(DRAGON.fireballDamage, p);
+        else if (p.y < 0.3 && Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 2.5) damagePlayer(8, p);
+        if (f.life <= 4) {
+          fireBurst(p, 2.2);
+          Sound.thunk();
+        }
+        f.mesh.removeFromParent();
+        fireballs.splice(i, 1);
+      }
+    }
+  }
+
+  const mouthPos = new V3(), breathDir = new V3();
+  function updateDragon(dt) {
+    const d = dragon, m = d.m;
+    d.t += dt;
+    d.stateT += dt;
+    if (d.flash > 0) d.flash -= dt;
+    for (const fm of m.flashMats) fm.emissive.setHex(d.flash > 0 ? 0x880000 : 0);
+    const dx = player.pos.x - d.pos.x, dz = player.pos.z - d.pos.z;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    const flap = (speed, amp, lift = 0) => {
+      const a = Math.sin(d.t * speed) * amp + lift;
+      m.wings[1].rotation.z = a;
+      m.wings[0].rotation.z = -a;
+    };
+    const fold = () => {
+      m.wings[1].rotation.z += (0.55 - m.wings[1].rotation.z) * Math.min(1, dt * 4);
+      m.wings[0].rotation.z = -m.wings[1].rotation.z;
+    };
+    m.tail.forEach((s, i) => { s.rotation.y = Math.sin(d.t * 2 - i * 0.6) * 0.18; });
+    d.jawT -= dt;
+    m.jaw.rotation.x = d.jawT > 0 ? 0.5 : 0;
+    m.body.rotation.x = 0;
+    if (d.state !== 'dead') m.root.rotation.z = 0;
+
+    switch (d.state) {
+      case 'intro':
+      case 'fly': {
+        d.orbitA += dt * DRAGON.orbitSpeed;
+        const tx = LAIR.x + Math.cos(d.orbitA) * DRAGON.orbitR, tz = LAIR.z + Math.sin(d.orbitA) * DRAGON.orbitR;
+        const ty = DRAGON.flyHeight + Math.sin(d.t * 0.8) * 1.5;
+        const k = Math.min(1, dt * (d.state === 'intro' ? 0.8 : 1.5));
+        d.pos.x += (tx - d.pos.x) * k;
+        d.pos.y += (ty - d.pos.y) * k;
+        d.pos.z += (tz - d.pos.z) * k;
+        faceToward(d, -Math.sin(d.orbitA), Math.cos(d.orbitA), dt, 3);
+        m.root.rotation.z = -0.25;
+        flap(4.5, 0.75);
+        if (d.state === 'intro') {
+          if (d.stateT > 4) setState(d, 'fly');
+          break;
+        }
+        d.fireCd -= dt;
+        if (d.fireCd <= 0) {
+          dragonFireball();
+          d.fireCd = rand(1.6, 2.8);
+        }
+        if (d.stateT > DRAGON.flyTime) {
+          setState(d, 'land');
+          d.landFrom.copy(d.pos);
+          const awayX = d.pos.x - player.pos.x, awayZ = d.pos.z - player.pos.z, l = Math.hypot(awayX, awayZ) || 1;
+          d.landTo.set(player.pos.x + (awayX / l) * 14, 0, player.pos.z + (awayZ / l) * 14);
+          clampInto(d.landTo, LAIR, 8);
+          Sound.flap();
+        }
+        break;
+      }
+      case 'land': {
+        const k = Math.min(1, d.stateT / 2.2), e = smooth(k);
+        d.pos.set(lerp(d.landFrom.x, d.landTo.x, e), lerp(d.landFrom.y, 0, e), lerp(d.landFrom.z, d.landTo.z, e));
+        faceToward(d, dx, dz, dt, 3);
+        flap(6, 0.8 * (1 - k) + 0.3);
+        if (k >= 1) {
+          setState(d, 'ground');
+          d.groundT = 0;
+          Sound.slam();
+          shake(0.7);
+          emit('dust', d.pos.clone().setY(0.3), 30, { speed: 8, up: 2, spread: 3, size: 0.4, life: 1.2 });
+        }
+        break;
+      }
+      case 'ground':
+      case 'breath': {
+        d.groundT += dt;
+        fold();
+        faceToward(d, dx, dz, dt, d.state === 'breath' ? 1.2 : 2.5);
+        if (d.state === 'ground') {
+          if (dist > 11) {
+            d.pos.x += (dx / dist) * 3 * dt;
+            d.pos.z += (dz / dist) * 3 * dt;
+            const p = d.t * 5;
+            m.legs.forEach((leg, i) => { leg.rotation.x = Math.sin(p + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI : 0)) * 0.35; });
+          }
+          d.breathCd -= dt;
+          if (d.breathCd <= 0 && dist < DRAGON.breathRange + 3) {
+            setState(d, 'breath');
+            Sound.breath();
+          } else if (d.groundT > DRAGON.groundTime) {
+            setState(d, 'takeoff');
+            Sound.flap();
+          }
+        } else {
+          m.jaw.rotation.x = 0.6;
+          m.mouth.getWorldPosition(mouthPos);
+          breathDir.set(-Math.sin(d.yaw), -0.25, -Math.cos(d.yaw));
+          emit('flame', mouthPos, 3, { speed: 2, up: 0, gravity: -1, size: 0.35, life: 0.7, spread: 0.2, push: breathDir.clone().multiplyScalar(17) });
+          emit('fire', mouthPos, 2, { speed: 2, up: 0, gravity: -1, size: 0.25, life: 0.6, spread: 0.2, push: breathDir.clone().multiplyScalar(15) });
+          d.breathTick -= dt;
+          if (d.breathTick <= 0) {
+            d.breathTick = 0.25;
+            const px = player.pos.x - mouthPos.x, pz = player.pos.z - mouthPos.z, pd = Math.hypot(px, pz) || 0.001;
+            const cos = (px * breathDir.x + pz * breathDir.z) / (pd * Math.hypot(breathDir.x, breathDir.z));
+            if (pd < DRAGON.breathRange && cos > Math.cos(0.45)) damagePlayer(DRAGON.breathDamage, mouthPos);
+          }
+          if (d.stateT > 1.6) {
+            setState(d, 'ground');
+            d.breathCd = rand(2.5, 4);
+          }
+        }
+        break;
+      }
+      case 'stagger':
+        d.groundT += dt;
+        m.body.rotation.x = 0.25 * Math.sin(Math.min(1, d.stateT / 0.6) * Math.PI);
+        m.jaw.rotation.x = 0.6;
+        if (d.stateT > 0.6) setState(d, 'ground');
+        break;
+      case 'takeoff': {
+        const k = Math.min(1, d.stateT / 1.6);
+        d.pos.y = DRAGON.flyHeight * smooth(k);
+        flap(7, 0.8);
+        if (k >= 1) {
+          d.orbitA = Math.atan2(d.pos.z - LAIR.z, d.pos.x - LAIR.x);
+          setState(d, 'fly');
+        }
+        break;
+      }
+      case 'dead':
+        m.jaw.rotation.x = 0.6;
+        if (d.pos.y > 0) {
+          d.vy -= 15 * dt;
+          d.pos.y = Math.max(0, d.pos.y + d.vy * dt);
+          flap(9, 0.5);
+        } else {
+          m.root.rotation.z += (1.3 - m.root.rotation.z) * Math.min(1, dt * 3);
+          if (!d.landed) {
+            d.landed = true;
+            Sound.slam();
+            shake(1);
+            emit('dust', d.pos.clone().setY(0.3), 50, { speed: 10, up: 3, spread: 4, size: 0.45, life: 1.5 });
+          }
+        }
+        break;
+    }
+    if (d.state !== 'dead') {
+      clampInto(d.pos, LAIR, 6);
+      updateSpheres(d);
+    }
+  }
+
   // ---------- Phases ----------
   let gameState = 'menu'; // menu | play | paused | dead | finale | won
-  let phase = 'monkeys'; // monkeys | wolves | toArena | boss | escape
+  let phase = 'monkeys'; // monkeys | wolves | toArena | kong | cats | toLair | dragon | escape
   let phaseKills = 0, phaseSpawned = 0, spawnTimer = 0, minionTimer = 0, bossDeadT = 0, rpgHintT = 0, runTime = 0, runFrom = 0;
+
+  function reachCheckpoint(i) {
+    save.checkpoint = Math.max(save.checkpoint, i);
+    writeSave();
+  }
 
   function setPhase(p) {
     phase = p;
@@ -1249,8 +1582,7 @@
         break;
       case 'wolves':
         barriers[0].openUp();
-        save.checkpoint = Math.max(save.checkpoint, 1);
-        writeSave();
+        reachCheckpoint(1);
         Sound.howl();
         toast('Kurtlar geliyor!', 'Devrik ağaçlar kalktı — ilerle', 3);
         break;
@@ -1258,18 +1590,34 @@
         barriers[1].openUp();
         toast('Yol açıldı!', 'Ormanın derinliklerine ilerle...', 3);
         break;
-      case 'boss':
-        spawnBoss();
-        if (!player.hasRpg) hangItem('rpg');
-        save.checkpoint = 2;
-        writeSave();
-        minionTimer = MINIONS.interval;
+      case 'kong':
+        spawnKong();
+        if (!player.hasRpg) hangItem('rpg', arenaTrees);
+        reachCheckpoint(2);
+        minionTimer = BOSS_FIGHTS.kong.interval;
         rpgHintT = 0;
         toast('KING KONG!', "Oklar ona işlemez — ağaçlarda asılı RPG-7'yi bul!", 4);
         break;
+      case 'cats':
+        barriers[2].openUp();
+        reachCheckpoint(3);
+        Sound.roar(0.7);
+        toast('Aslanlar ve kaplanlar!', 'King Kong\'un ardındaki yol açıldı — hepsini yen', 3.5);
+        break;
+      case 'toLair':
+        barriers[3].openUp();
+        toast('Yol açıldı!', 'Ejderhanın inine ilerle...', 3);
+        break;
+      case 'dragon':
+        spawnDragon();
+        hangItem(player.hasRpg ? 'ammo' : 'rpg', lairTrees);
+        reachCheckpoint(4);
+        minionTimer = BOSS_FIGHTS.dragon.interval;
+        toast('EJDERHA!', 'Pullarına ok işlemez — RPG-7 ile vur! Ağaçlarda roket var', 4);
+        break;
       case 'escape':
         gate.open();
-        toast('King Kong yenildi!', 'Ormanın son kapısı açıldı — çık!', 4);
+        toast('Ejderha yenildi!', 'Ormanın son kapısı açıldı — çık!', 4);
         break;
     }
   }
@@ -1278,7 +1626,7 @@
     let z = player.pos.z - rand(14, 38);
     if (z < zMin) z = player.pos.z + rand(12, 22);
     z = clamp(z, zMin, zMax);
-    const x = type === 'wolf' ? (Math.random() < 0.5 ? -1 : 1) * (LEVEL.corridorHalf - 1) : rand(-12, 12);
+    const x = type === 'monkey' ? rand(-12, 12) : (Math.random() < 0.5 ? -1 : 1) * (C1.x1 - 1);
     spawnEnemy(type, x, z, type === 'monkey', true);
     phaseSpawned++;
   }
@@ -1291,47 +1639,45 @@
 
   function updatePhase(dt) {
     spawnTimer -= dt;
-    if (phase === 'monkeys') {
-      if (spawnTimer <= 0 && phaseSpawned < MONKEY.total && aliveCount() < MONKEY.maxAlive) {
-        spawnAhead('monkey', LEVEL.barrier1 + 3, -2);
-        spawnTimer = rand(0.8, 1.8);
+    const wave = WAVES[phase];
+    if (wave) {
+      if (spawnTimer <= 0 && phaseSpawned < wave.total && aliveCount() < wave.maxAlive) {
+        spawnAhead(wave.types[phaseSpawned % wave.types.length], wave.zMin, wave.zMax);
+        spawnTimer = rand(wave.interval[0], wave.interval[1]);
       }
-      if (phaseKills >= MONKEY.total) setPhase('wolves');
-    } else if (phase === 'wolves') {
-      if (spawnTimer <= 0 && phaseSpawned < WOLF.total && aliveCount() < WOLF.maxAlive) {
-        spawnAhead('wolf', LEVEL.barrier2 + 3, LEVEL.barrier1 - 3);
-        spawnTimer = rand(1.0, 2.2);
-      }
-      if (phaseKills >= WOLF.total) setPhase('toArena');
-    } else if (phase === 'toArena') {
-      if (player.pos.z < -312) setPhase('boss');
-    } else if (phase === 'boss') {
+      if (phaseKills >= wave.total) setPhase(wave.next);
+      return;
+    }
+    if (phase === 'toArena') {
+      if (player.pos.z < -312) setPhase('kong');
+    } else if (phase === 'toLair') {
+      if (player.pos.z < -575) setPhase('dragon');
+    } else if (phase === 'escape') {
+      if (player.pos.z < GATE_Z - 1.5) startFinale();
+    } else {
+      const fight = BOSS_FIGHTS[phase];
+      const boss = phase === 'kong' ? kong : dragon;
       if (boss.state === 'dead') {
         bossDeadT += dt;
-        if (bossDeadT > 3) setPhase('escape');
+        if (bossDeadT > 3) setPhase(phase === 'kong' ? 'cats' : 'escape');
         return;
       }
       minionTimer -= dt;
-      if (minionTimer <= 0 && aliveCount(true) < MINIONS.maxAlive) {
-        minionTimer = MINIONS.interval;
+      if (minionTimer <= 0 && aliveCount(true) < fight.maxAlive) {
+        minionTimer = fight.interval;
+        const area = fight.area;
         let a = Math.random() * Math.PI * 2;
-        let x = ARENA.x + Math.cos(a) * (ARENA.r - 4), z = ARENA.z + Math.sin(a) * (ARENA.r - 4);
-        if (Math.hypot(x - player.pos.x, z - player.pos.z) < 15) {
-          a += Math.PI;
-          x = ARENA.x + Math.cos(a) * (ARENA.r - 4);
-          z = ARENA.z + Math.sin(a) * (ARENA.r - 4);
-        }
-        spawnEnemy(Math.random() < 0.5 ? 'monkey' : 'wolf', x, z, false, false);
+        if (Math.hypot(area.x + Math.cos(a) * (area.r - 4) - player.pos.x, area.z + Math.sin(a) * (area.r - 4) - player.pos.z) < 15) a += Math.PI;
+        const type = fight.minions[Math.floor(Math.random() * fight.minions.length)];
+        spawnEnemy(type, area.x + Math.cos(a) * (area.r - 4), area.z + Math.sin(a) * (area.r - 4), false, false);
       }
-      if (!player.hasRpg) {
+      if (phase === 'kong' && !player.hasRpg) {
         rpgHintT += dt;
         if (rpgHintT > 50) {
           rpgHintT = -999;
           toast('İpucu', 'Büyük ağaçların dallarına bak!', 3);
         }
       }
-    } else if (phase === 'escape') {
-      if (player.pos.z < LEVEL.gateZ - 1.5) startFinale();
     }
   }
 
@@ -1346,10 +1692,15 @@
 
   function objectiveText() {
     switch (phase) {
-      case 'monkeys': return `🐒 Maymunlar: ${phaseKills} / ${MONKEY.total}`;
-      case 'wolves': return `🐺 Kurtlar: ${phaseKills} / ${WOLF.total}`;
+      case 'monkeys': return `🐒 Maymunlar: ${phaseKills} / ${WAVES.monkeys.total}`;
+      case 'wolves': return `🐺 Kurtlar: ${phaseKills} / ${WAVES.wolves.total}`;
       case 'toArena': return '🌲 Ormanın derinliklerine ilerle';
-      case 'boss': return player.hasRpg ? "🦍 King Kong'u RPG-7 ile vur!" : "🔎 Ağaçlarda asılı RPG-7'yi bul!";
+      case 'kong': return player.hasRpg ? "🦍 King Kong'u RPG-7 ile vur!" : "🔎 Ağaçlarda asılı RPG-7'yi bul!";
+      case 'cats': return `🦁 Aslan ve kaplanlar: ${phaseKills} / ${WAVES.cats.total}`;
+      case 'toLair': return '🔥 Ejderhanın inine ilerle';
+      case 'dragon':
+        if (!player.hasRpg) return "🔎 Ağaçlarda asılı RPG-7'yi bul!";
+        return player.rockets > 0 ? '🐉 Ejderhayı RPG-7 ile vur!' : '🔎 Ağaçlarda roket ara!';
       default: return '🚪 Kapıdan çık!';
     }
   }
@@ -1359,9 +1710,12 @@
     const lowHp = player.hp < PLAYER.maxHp * 0.3;
     $('hp').classList.toggle('low', lowHp);
     $('objective').textContent = objectiveText();
-    const showBoss = !!boss && phase === 'boss';
-    $('boss').classList.toggle('hidden', !showBoss);
-    if (showBoss) $('boss-fill').style.width = `${(boss.hp / BOSS.hp) * 100}%`;
+    const boss = phase === 'kong' ? kong : phase === 'dragon' ? dragon : null;
+    $('boss').classList.toggle('hidden', !boss);
+    if (boss) {
+      $('boss-name').textContent = boss.name;
+      $('boss-fill').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
+    }
     $('weapon').innerHTML = player.weapon === 'rpg'
       ? `🚀 RPG-7 × ${player.rockets}<small>[1] yay · [2] RPG-7</small>`
       : `🏹 Yay<small>${player.hasRpg ? '[1] yay · [2] RPG-7' : 'sınırsız ok'}</small>`;
@@ -1402,14 +1756,15 @@
     clearList(stuckArrows);
     clearList(rockets);
     clearList(rocks);
+    clearList(fireballs);
     clearList(pickups);
     for (const p of particles) {
       scene.remove(p.m);
       particlePool.push(p.m);
     }
     particles.length = 0;
-    if (boss) boss.root.removeFromParent();
-    boss = null;
+    for (const b of [kong, dragon]) if (b) b.root.removeFromParent();
+    kong = dragon = null;
     if (hanging) hanging.group.removeFromParent();
     hanging = null;
     lastHangTree = null;
@@ -1418,19 +1773,19 @@
   function startRun(checkpoint) {
     resetWorld();
     leaveStadium();
-    Object.assign(player, { hp: PLAYER.maxHp, hasRpg: false, rockets: 0, cooldown: 0.3, invuln: 0, onGround: true });
+    const cp = CHECKPOINTS[checkpoint];
+    const armed = checkpoint >= 3;
+    Object.assign(player, { hp: PLAYER.maxHp, hasRpg: armed, rockets: armed ? ROCKET.startAmmo : 0, cooldown: 0.3, invuln: 0, onGround: true });
     player.vel.set(0, 0, 0);
     setWeapon('bow');
-    barriers[0].set(checkpoint >= 1);
-    barriers[1].set(checkpoint >= 2);
+    barriers.forEach((b, i) => b.set(i < checkpoint));
     gate.set(false);
-    const startZ = [-3, -156, -302][checkpoint];
-    player.pos.set(0, 0, startZ);
+    player.pos.set(0, 0, cp.z);
     yaw = 0;
     pitch = -0.1;
     runTime = 0;
     runFrom = checkpoint;
-    setPhase(['monkeys', 'wolves', 'toArena'][checkpoint]);
+    setPhase(cp.phase);
     for (const id of ['menu', 'pause', 'dead', 'win']) $(id).classList.add('hidden');
     $('hud').classList.remove('hidden');
     $('fade').style.opacity = 0;
@@ -1442,7 +1797,7 @@
     gameState = 'dead';
     mouseDown = false;
     $('prompt').classList.remove('show');
-    $('dead-text').textContent = `Kaldığın yerden devam edeceksin: ${PHASE_NAMES[save.checkpoint]}`;
+    $('dead-text').textContent = `Kaldığın yerden devam edeceksin: ${CHECKPOINTS[save.checkpoint].name}`;
     $('dead').classList.remove('hidden');
     document.exitPointerLock();
   }
@@ -1464,13 +1819,11 @@
   function showMenu() {
     resetWorld();
     leaveStadium();
-    Sound.musicStop();
     gameState = 'menu';
     for (const id of ['pause', 'dead', 'win', 'hud']) $(id).classList.add('hidden');
     $('menu').classList.remove('hidden');
     $('fade').style.opacity = 0;
-    barriers[0].set(false);
-    barriers[1].set(false);
+    barriers.forEach((b) => b.set(false));
     gate.set(false);
     player.pos.set(0, 0, -3);
     player.rig.root.position.copy(player.pos);
@@ -1483,7 +1836,7 @@
   function refreshMenu() {
     const cont = $('btn-continue');
     cont.classList.toggle('hidden', save.checkpoint === 0);
-    cont.textContent = `Devam et: ${PHASE_NAMES[save.checkpoint]}`;
+    cont.textContent = `Devam et: ${CHECKPOINTS[save.checkpoint].name}`;
     $('opt-sound').checked = save.settings.sound;
     $('opt-sens').value = save.settings.sens;
     const lines = [`Kazanılan oyun: <b>${save.wins}</b>`];
@@ -1511,11 +1864,11 @@
   }
 
   function leaveStadium() {
+    Sound.musicStop();
     if (!stadiumActive) return;
     stadiumActive = false;
     scene.add(player.rig.root);
     player.rig.root.scale.setScalar(1);
-    Sound.musicStop();
   }
 
   function updateFinale(dt) {
@@ -1561,10 +1914,12 @@
     updatePlayer(dt);
     updatePhase(dt);
     for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i]) updateEnemy(enemies[i], dt);
-    if (boss) updateBoss(dt);
+    if (kong) updateKong(dt);
+    if (dragon) updateDragon(dt);
     updateArrows(dt);
     updateRockets(dt);
     updateRocks(dt);
+    updateFireballs(dt);
     updatePickups(dt);
     if (hanging) {
       hanging.t += dt;

@@ -243,10 +243,40 @@ const Models = (() => {
     return { root, body, head, arms, legs, flashMats: [fur] };
   }
 
-  // ---------- Wolf ----------
-  function wolf() {
+  // ---------- Four-legged beasts: wolf, lion, tiger ----------
+  const BEASTS = {
+    wolf: { fur: 0x6f6f6f, legs: 0x3d3d3d, light: 0xbdbdbd, ear: 0x3d3d3d, eye: 0xffd000, scale: 1, pointedEars: true },
+    lion: { fur: 0xc9974c, legs: 0xb7853e, light: 0xead0a0, ear: 0x8a6430, eye: 0xffb000, scale: 1.4, mane: 0x6e3f17, tuft: 0x5a3212 },
+    tiger: { fur: 0xe2781e, legs: 0xe2781e, light: 0xf4efe6, ear: 0x1d1d1d, eye: 0x9cff3a, scale: 1.35, stripes: true },
+  };
+
+  let stripeTexture = null;
+  function stripes() {
+    if (!stripeTexture) {
+      stripeTexture = textTexture(128, 128, (g, w, h) => {
+        g.fillStyle = '#ffffff';
+        g.fillRect(0, 0, w, h);
+        g.fillStyle = '#1a1a1a';
+        for (let x = 6; x < w; x += 22) {
+          g.beginPath();
+          g.moveTo(x, 0);
+          g.lineTo(x + 9, h * 0.45);
+          g.lineTo(x + 2, h);
+          g.lineTo(x - 4, h);
+          g.lineTo(x + 3, h * 0.45);
+          g.lineTo(x - 5, 0);
+          g.fill();
+        }
+      });
+    }
+    return stripeTexture;
+  }
+
+  function beast(kind) {
+    const o = BEASTS[kind];
     const root = new THREE.Group();
-    const fur = mat(0x6f6f6f), dark = mat(0x3d3d3d), light = mat(0xbdbdbd), eye = glow(0xffd000);
+    const fur = mat(o.fur, o.stripes ? { map: stripes() } : undefined);
+    const legsM = o.stripes ? fur : mat(o.legs), light = mat(o.light), dark = mat(0x1d1d1d), eye = glow(o.eye), earM = mat(o.ear);
     const body = group(root);
     add(body, box(0.42, 0.42, 1.0), fur, 0, 0.74, 0.05);
     add(body, box(0.3, 0.14, 0.8), light, 0, 0.52, 0.05);
@@ -257,20 +287,95 @@ const Models = (() => {
     add(head, box(0.07, 0.06, 0.05), dark, 0, 0, -0.4);
     add(head, sphere(0.03, 6, 4), eye, -0.08, 0.06, -0.15);
     add(head, sphere(0.03, 6, 4), eye, 0.08, 0.06, -0.15);
-    const ear = new THREE.ConeGeometry(0.06, 0.15, 4);
-    add(head, ear, dark, -0.09, 0.2, 0.03);
-    add(head, ear, dark, 0.09, 0.2, 0.03);
+    const ear = o.pointedEars ? new THREE.ConeGeometry(0.06, 0.15, 4) : sphere(0.06, 8, 6);
+    add(head, ear, earM, -0.11, 0.17, 0.03);
+    add(head, ear, earM, 0.11, 0.17, 0.03);
+    if (o.mane) add(head, sphere(0.3, 12, 10), mat(o.mane), 0, 0.02, 0.1).scale.set(1.2, 1.2, 0.75);
     const legs = [];
     for (const [x, z] of [[-0.14, -0.4], [0.14, -0.4], [-0.14, 0.42], [0.14, 0.42]]) {
       const leg = group(body, x, 0.58, z);
-      add(leg, box(0.1, 0.58, 0.1), dark, 0, -0.29, 0);
+      add(leg, box(0.1, 0.58, 0.1), legsM, 0, -0.29, 0);
       legs.push(leg);
     }
     const tail = group(body, 0, 0.85, 0.55);
-    const t = add(tail, new THREE.CylinderGeometry(0.07, 0.04, 0.55, 6), fur, 0, -0.25, 0);
+    add(tail, new THREE.CylinderGeometry(0.07, 0.04, 0.55, 6), fur, 0, -0.25, 0);
+    if (o.tuft) add(tail, sphere(0.08), mat(o.tuft), 0, -0.55, 0);
     tail.rotation.x = 2.3;
-    t.castShadow = true;
-    return { root, body, head, legs, tail, flashMats: [fur] };
+    root.scale.setScalar(o.scale);
+    return { root, body, head, legs, tail, scale: o.scale, flashMats: [fur] };
+  }
+
+  // ---------- Dragon: about 11 m long, wings span 13 m; head toward -z ----------
+  function dragonWing(side, material, bone) {
+    const pivot = new THREE.Group();
+    const s = side;
+    const pts = [
+      [0, 0, -0.6], [6.4 * s, 0.9, 0.2], [4.6 * s, 0.1, 1.6],
+      [0, 0, -0.6], [4.6 * s, 0.1, 1.6], [2.6 * s, -0.1, 2.0],
+      [0, 0, -0.6], [2.6 * s, -0.1, 2.0], [0, 0, 1.4],
+    ].flat();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    geo.computeVertexNormals();
+    const membrane = new THREE.Mesh(geo, material);
+    membrane.castShadow = true;
+    pivot.add(membrane);
+    const spar = new THREE.CatmullRomCurve3([new V3(0, 0, -0.6), new V3(3.2 * s, 0.7, -0.4), new V3(6.4 * s, 0.9, 0.2)]);
+    add(pivot, new THREE.TubeGeometry(spar, 10, 0.09, 5), bone);
+    return pivot;
+  }
+
+  function dragon() {
+    const root = new THREE.Group();
+    const scales = mat(0x8e1414), belly = mat(0xd9a441), horn = mat(0xe8dcc0), eye = glow(0xffe000);
+    const wingM = mat(0x5a0d0d, { side: THREE.DoubleSide });
+    const body = group(root);
+    add(body, sphere(1.2, 16, 12), scales, 0, 2.4, 0).scale.set(1, 0.9, 2.0);
+    add(body, sphere(1.0, 14, 10), belly, 0, 2.1, -0.3).scale.set(0.85, 0.7, 1.7);
+    for (let i = 0; i < 6; i++) {
+      const spike = new THREE.ConeGeometry(0.16, 0.5, 5);
+      add(body, spike, horn, 0, 3.45 - Math.abs(i - 2) * 0.08, -1.4 + i * 0.6);
+    }
+    const neck = group(body, 0, 2.9, -2.0);
+    add(neck, sphere(0.62, 12, 8), scales, 0, 0.3, -0.4);
+    add(neck, sphere(0.52, 12, 8), scales, 0, 0.9, -0.9);
+    const head = group(neck, 0, 1.5, -1.5);
+    add(head, box(0.9, 0.7, 1.3), scales);
+    add(head, box(0.7, 0.35, 1.0), scales, 0, 0.05, -1.05);
+    const jaw = group(head, 0, -0.25, -0.3);
+    add(jaw, box(0.62, 0.18, 1.3), belly, 0, -0.05, -0.6);
+    add(head, sphere(0.09, 8, 6), eye, -0.36, 0.2, -0.45);
+    add(head, sphere(0.09, 8, 6), eye, 0.36, 0.2, -0.45);
+    for (const s of [-1, 1]) {
+      const h = add(head, new THREE.ConeGeometry(0.12, 0.8, 6), horn, 0.3 * s, 0.5, 0.4);
+      h.rotation.x = 0.9;
+    }
+    const mouth = group(head, 0, -0.1, -1.6);
+    const wings = [dragonWing(-1, wingM, horn), dragonWing(1, wingM, horn)];
+    wings[0].position.set(-0.9, 3.0, -0.6);
+    wings[1].position.set(0.9, 3.0, -0.6);
+    body.add(wings[0], wings[1]);
+    const tail = [];
+    let parent = body;
+    let at = new V3(0, 2.3, 2.2);
+    for (let i = 0; i < 6; i++) {
+      const seg = group(parent, at.x, at.y, at.z);
+      add(seg, sphere(0.6 - i * 0.08, 10, 8), scales, 0, 0, 0.45);
+      tail.push(seg);
+      parent = seg;
+      at = new V3(0, i === 0 ? -0.3 : -0.1, 0.8);
+    }
+    const tip = new THREE.ConeGeometry(0.25, 0.7, 4);
+    tip.rotateX(Math.PI / 2);
+    add(parent, tip, horn, 0, 0, 1.1);
+    const legs = [];
+    for (const [x, z] of [[-0.75, -1.2], [0.75, -1.2], [-0.8, 1.1], [0.8, 1.1]]) {
+      const leg = group(body, x, 1.6, z);
+      add(leg, box(0.45, 1.6, 0.5), scales, 0, -0.8, 0);
+      add(leg, box(0.55, 0.2, 0.75), horn, 0, -1.55, -0.12);
+      legs.push(leg);
+    }
+    return { root, body, neck, head, jaw, mouth, wings, tail, legs, flashMats: [scales] };
   }
 
   // ---------- King Kong: built ~1.94 m tall, scaled up by the caller ----------
@@ -336,5 +441,5 @@ const Models = (() => {
     return g;
   }
 
-  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, wolf, gorilla, banana, medkit, rocketBag, textTexture, mat, add, group };
+  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, dragon, gorilla, banana, medkit, rocketBag, textTexture, mat, add, group };
 })();
