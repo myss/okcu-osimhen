@@ -7,11 +7,12 @@
   const Y_AXIS = new V3(0, 1, 0);
 
   // ---------- Tuning ----------
-  const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 100 };
+  const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 200 };
+  const HEAL = { banana: 40, medkit: 70 };
   const ARROW = { speed: 75, gravity: 6, cooldown: 0.45, damage: 1, bossDamage: 0.5 };
   const ROCKET = { speed: 45, cooldown: 1.6, damage: 25, splash: 4.5, startAmmo: 5, bagAmmo: 3 };
   const MONKEY = { total: 12, maxAlive: 4, hp: 1, speed: 5.2, damage: 7, attackCd: 1.0, reach: 1.3 };
-  const WOLF = { total: 10, maxAlive: 4, hp: 2, speed: 7.2, lungeSpeed: 15, damage: 11, attackCd: 1.2, reach: 1.5 };
+  const WOLF = { total: 6, maxAlive: 3, hp: 1, speed: 7.2, lungeSpeed: 15, damage: 11, attackCd: 1.2, reach: 1.5 };
   const BOSS = { hp: 100, height: 5.4, speed: 4.2, slamDamage: 35, slamRadius: 6, rockDamage: 20 };
   const MINIONS = { maxAlive: 3, interval: 7 };
   const LEVEL = { corridorHalf: 14, barrier1: -150, barrier2: -300, gateZ: -398 };
@@ -973,9 +974,9 @@
       p.mesh.position.y = 0.45 + Math.sin(p.t * 3) * 0.1;
       const d = Math.hypot(player.pos.x - p.mesh.position.x, player.pos.z - p.mesh.position.z);
       if (d < 1.3 && player.hp < PLAYER.maxHp) {
-        player.hp = Math.min(PLAYER.maxHp, player.hp + (p.kind === 'banana' ? 20 : 35));
+        player.hp = Math.min(PLAYER.maxHp, player.hp + HEAL[p.kind]);
         Sound.eat();
-        toast(p.kind === 'banana' ? '+20 can 🍌' : '+35 can', '', 1.0);
+        toast(`+${HEAL[p.kind]} can${p.kind === 'banana' ? ' 🍌' : ''}`, '', 1.0);
       } else if (p.t < 40) continue;
       p.mesh.removeFromParent();
       pickups.splice(i, 1);
@@ -1355,7 +1356,8 @@
 
   function updateHud(dt) {
     $('hp-fill').style.width = `${(player.hp / PLAYER.maxHp) * 100}%`;
-    $('hp').classList.toggle('low', player.hp < 35);
+    const lowHp = player.hp < PLAYER.maxHp * 0.3;
+    $('hp').classList.toggle('low', lowHp);
     $('objective').textContent = objectiveText();
     const showBoss = !!boss && phase === 'boss';
     $('boss').classList.toggle('hidden', !showBoss);
@@ -1368,7 +1370,7 @@
       if (toastT <= 0) $('toast').classList.remove('show');
     }
     hurtT = Math.max(0, hurtT - dt);
-    $('hurt').style.opacity = Math.min(1, hurtT * 1.6 + (player.hp < 30 ? 0.25 : 0));
+    $('hurt').style.opacity = Math.min(1, hurtT * 1.6 + (lowHp ? 0.25 : 0));
     arrowBossNoticeT -= dt;
   }
 
