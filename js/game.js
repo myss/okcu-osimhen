@@ -7,7 +7,7 @@
   const Y_AXIS = new V3(0, 1, 0);
 
   // ---------- Tuning ----------
-  const PLAYER = { speed: 6, sprint: 9.5, jump: 6, gravity: 18, radius: 0.4, maxHp: 100 };
+  const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 100 };
   const ARROW = { speed: 75, gravity: 6, cooldown: 0.45, damage: 1, bossDamage: 0.5 };
   const ROCKET = { speed: 45, cooldown: 1.6, damage: 25, splash: 4.5, startAmmo: 5, bagAmmo: 3 };
   const MONKEY = { total: 12, maxAlive: 4, hp: 1, speed: 5.2, damage: 7, attackCd: 1.0, reach: 1.3 };
@@ -552,11 +552,27 @@
     if (player.weapon === 'bow') rig.bow.userData.setDraw(clamp(1 - player.cooldown / ARROW.cooldown, 0, 1));
     if (mouseDown && player.cooldown <= 0) fire();
 
-    // Pickup prompt for the hanging RPG / rocket bag
-    const near = hanging && Math.hypot(player.pos.x - hanging.pos.x, player.pos.z - hanging.pos.z) < 2.8;
     const promptEl = $('prompt');
-    promptEl.classList.toggle('show', !!near);
-    if (near) promptEl.textContent = hanging.kind === 'rpg' ? "E — RPG-7'yi al" : 'E — Roketleri al';
+    const text = promptText();
+    promptEl.classList.toggle('show', !!text);
+    if (text) promptEl.textContent = text;
+  }
+
+  // Explains what the player can do here: take the hanging item, or why a log pile / the gate is still closed.
+  function promptText() {
+    if (hanging && Math.hypot(player.pos.x - hanging.pos.x, player.pos.z - hanging.pos.z) < 2.8) {
+      return hanging.kind === 'rpg' ? "E — RPG-7'yi al" : 'E — Roketleri al';
+    }
+    if (!barriers[0].open && player.pos.z < LEVEL.barrier1 + 6) {
+      return `Kütükler kapalı! Önce bütün maymunları yen — kalan: ${MONKEY.total - phaseKills}`;
+    }
+    if (!barriers[1].open && player.pos.z < LEVEL.barrier2 + 6) {
+      return `Kütükler kapalı! Önce bütün kurtları yen — kalan: ${WOLF.total - phaseKills}`;
+    }
+    if (!gate.isOpen && player.pos.z < LEVEL.gateZ + 8 && Math.abs(player.pos.x) < 8) {
+      return "Kapı kapalı! Önce King Kong'u yen";
+    }
+    return '';
   }
 
   // ---------- Aiming and hit tests ----------
@@ -1228,7 +1244,7 @@
     spawnTimer = 1.5;
     switch (p) {
       case 'monkeys':
-        toast('Vahşi maymunlar!', 'Hepsini okla vur', 3);
+        toast('Vahşi maymunlar!', 'Hepsini okla vur — yol ancak o zaman açılır', 3.5);
         break;
       case 'wolves':
         barriers[0].openUp();
