@@ -11,6 +11,14 @@
   const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 200 };
   const HEAL = { banana: 40, medkit: 70 };
   const ARROW = { speed: 75, gravity: 6, cooldown: 0.45, damage: 1, bossDamage: 0.5 };
+  // Hitscan firearms; bullets barely hurt bosses, like arrows.
+  const GUNS = {
+    ak: { name: 'AK-47', cooldown: 0.1, damage: 1, bossDamage: 0.2, spread: 0.012, start: 120, box: 30, sound: 'rifle' },
+    pistol: { name: 'Smith & Wesson', cooldown: 0.32, damage: 2, bossDamage: 0.5, spread: 0.003, start: 36, box: 12, sound: 'pistol' },
+  };
+  const AMMO_DROP = 0.3;
+  // Tab and the mouse wheel step through this order, skipping weapons without ammo.
+  const WEAPON_ORDER = ['bow', 'ak', 'pistol', 'rpg'];
   const ROCKET = { speed: 45, cooldown: 1.6, damage: 25, splash: 4.5, startAmmo: 5, bagAmmo: 4 };
   const MONKEY = { hp: 1, speed: 5.2, damage: 7, attackCd: 1.0, reach: 1.3 };
   const BEASTS = {
@@ -508,6 +516,7 @@
       if (k >= 1) {
         scene.remove(e.m);
         e.m.material.dispose();
+        if (e.ownGeometry) e.m.geometry.dispose();
         effects.splice(i, 1);
       } else e.update(e.m, k);
     }
@@ -533,7 +542,7 @@
   const player = {
     rig: Models.player(),
     pos: new V3(), vel: new V3(), onGround: true,
-    hp: PLAYER.maxHp, weapon: 'bow', hasRpg: false, rockets: 0,
+    hp: PLAYER.maxHp, weapon: 'bow', hasRpg: false, rockets: 0, ammo: { ak: 0, pistol: 0 },
     cooldown: 0, runPhase: 0, invuln: 0,
   };
   player.rig.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
@@ -738,7 +747,13 @@
 
   // ---------- Weapons ----------
   const arrows = [], stuckArrows = [], rockets = [], rocks = [], fireballs = [];
-  let arrowBossNoticeT = 0;
+  let bossImmuneNoticeT = 0;
+
+  function noticeBossImmune(boss, what) {
+    if (bossImmuneNoticeT > 0) return;
+    toast(`${what} ${boss.title} işlemiyor!`, player.hasRpg ? 'RPG-7 kullan — [Tab] ile geç' : "Ağaçlarda asılı RPG-7'yi bul!", 2.2);
+    bossImmuneNoticeT = 8;
+  }
 
   function orientArrow(mesh, vel) {
     mesh.lookAt(segF.copy(mesh.position).add(vel));
@@ -759,10 +774,57 @@
       }
       fireRocket(computeAimPoint());
       player.cooldown = ROCKET.cooldown;
+    } else if (GUNS[player.weapon]) {
+      fireGun(player.weapon);
     } else {
       fireArrow(computeAimPoint());
       player.cooldown = ARROW.cooldown;
     }
+  }
+
+  const muzzlePos = new V3();
+  function fireGun(id) {
+    const gun = GUNS[id];
+    player.ammo[id]--;
+    player.cooldown = gun.cooldown;
+    const dir = camera.getWorldDirection(new V3());
+    dir.x += rand(-gun.spread, gun.spread);
+    dir.y += rand(-gun.spread, gun.spread);
+    dir.z += rand(-gun.spread, gun.spread);
+    dir.normalize();
+    const a = camera.position.clone().addScaledVector(dir, 3.8);
+    const b = camera.position.clone().addScaledVector(dir, 160);
+    const h = firstHit(a, b);
+    const end = h ? h.point.clone() : b;
+    player.rig.muzzle(id, muzzlePos);
+    tracer(muzzlePos, end);
+    addEffect(unitSphere, 0xffd060, muzzlePos, 0.06, (m, k) => {
+      m.scale.setScalar(0.08 + 0.12 * k);
+      m.material.opacity = 1 - k;
+    });
+    Sound[gun.sound]();
+    shake(id === 'pistol' ? 0.12 : 0.05);
+    if (h) {
+      if (h.kind === 'enemy') {
+        hitEnemy(h.obj, gun.damage, dir);
+        emit('spark', end, 4, { speed: 3, up: 1, size: 0.05, life: 0.3 });
+      } else if (h.kind === 'boss') {
+        h.obj.hurt(gun.bossDamage, false);
+        emit('spark', end, 4, { speed: 3, up: 1, size: 0.05, life: 0.3 });
+        noticeBossImmune(h.obj, 'Mermiler');
+      } else emit(h.kind === 'tree' ? 'leaf' : 'dust', end, 4, { speed: 2, up: 1.5, size: 0.06, life: 0.5 });
+    }
+    if (player.ammo[id] === 0) {
+      toast(`${gun.name} mermisi bitti!`, 'Hayvanlardan düşen mermi kutularını topla', 2);
+      nextWeapon();
+    }
+  }
+
+  function tracer(from, to) {
+    const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, fog: false }));
+    scene.add(line);
+    effects.push({ m: line, t: 0, dur: 0.07, ownGeometry: true, update: (m, k) => { m.material.opacity = 1 - k; } });
   }
 
   function fireArrow(target) {
@@ -802,10 +864,7 @@
           boss.hurt(ARROW.bossDamage, false);
           stick(a.mesh, boss.root);
           Sound.thunk();
-          if (arrowBossNoticeT <= 0) {
-            toast(`Oklar ${boss.title} işlemiyor!`, player.hasRpg ? 'RPG-7 kullan — [2] tuşu' : "Ağaçlarda asılı RPG-7'yi bul!", 2.2);
-            arrowBossNoticeT = 8;
-          }
+          noticeBossImmune(boss, 'Oklar');
         } else {
           stick(a.mesh, null);
           Sound.wood();
@@ -832,6 +891,7 @@
     scene.add(mesh);
     rockets.push({ mesh, pos: start, vel: dir.multiplyScalar(ROCKET.speed), life: 0, smokeT: 0 });
     player.rockets--;
+    if (player.rockets === 0) nextWeapon();
     Sound.launch();
     shake(0.2);
     emit('smoke', player.rig.rpgHolder.getWorldPosition(new V3()).addScaledVector(dir, -2.2), 10, { speed: 2, up: 0.5, gravity: -0.5, size: 0.35, life: 0.9, grow: true });
@@ -938,6 +998,7 @@
     if (e.type === 'monkey') {
       if (Math.random() < 0.4) dropPickup('banana', e.pos.x, e.pos.z);
     } else if (Math.random() < e.stats.drop) dropPickup('medkit', e.pos.x, e.pos.z);
+    if (Math.random() < AMMO_DROP) dropPickup('ammo', e.pos.x + 0.8, e.pos.z);
   }
 
   function removeEnemy(e, poof) {
@@ -1059,7 +1120,7 @@
   // ---------- Pickups ----------
   const pickups = [];
   function dropPickup(kind, x, z) {
-    const mesh = kind === 'banana' ? Models.banana() : Models.medkit();
+    const mesh = { banana: Models.banana, medkit: Models.medkit, ammo: Models.ammoBox }[kind]();
     mesh.position.set(x, 0.45, z);
     scene.add(mesh);
     pickups.push({ kind, mesh, t: 0 });
@@ -1072,7 +1133,12 @@
       p.mesh.rotation.y += dt * 2;
       p.mesh.position.y = 0.45 + Math.sin(p.t * 3) * 0.1;
       const d = Math.hypot(player.pos.x - p.mesh.position.x, player.pos.z - p.mesh.position.z);
-      if (d < 1.3 && player.hp < PLAYER.maxHp) {
+      if (d < 1.3 && p.kind === 'ammo') {
+        player.ammo.ak += GUNS.ak.box;
+        player.ammo.pistol += GUNS.pistol.box;
+        Sound.pickup();
+        toast(`+${GUNS.ak.box} AK-47 · +${GUNS.pistol.box} Smith & Wesson mermisi`, '', 1.4);
+      } else if (d < 1.3 && p.kind !== 'ammo' && player.hp < PLAYER.maxHp) {
         player.hp = Math.min(PLAYER.maxHp, player.hp + HEAL[p.kind]);
         Sound.eat();
         toast(`+${HEAL[p.kind]} can${p.kind === 'banana' ? ' 🍌' : ''}`, '', 1.0);
@@ -1111,7 +1177,7 @@
     if (hanging.kind === 'rpg') {
       player.hasRpg = true;
       player.rockets = Math.max(player.rockets, ROCKET.startAmmo);
-      toast('RPG-7 senin!', 'Şimdi vur! [1] yay · [2] RPG-7', 3);
+      toast('RPG-7 senin!', 'Şimdi vur! Silah değiştirmek için [Tab]', 3);
     } else {
       player.rockets += ROCKET.bagAmmo;
       toast(`+${ROCKET.bagAmmo} roket`, '', 1.6);
@@ -1122,8 +1188,25 @@
     hanging = null;
   }
 
+  function weaponReady(w) {
+    if (w === 'rpg') return player.hasRpg && player.rockets > 0;
+    return w === 'bow' || player.ammo[w] > 0;
+  }
+
+  function nextWeapon() {
+    const i = WEAPON_ORDER.indexOf(player.weapon);
+    for (let k = 1; k < WEAPON_ORDER.length; k++) {
+      const w = WEAPON_ORDER[(i + k) % WEAPON_ORDER.length];
+      if (weaponReady(w)) {
+        setWeapon(w);
+        return;
+      }
+    }
+  }
+
   function setWeapon(w) {
     if (w === 'rpg' && !player.hasRpg) return;
+    if (GUNS[w] && !weaponReady(w)) return;
     player.weapon = w;
     player.rig.pose(w);
     $('crosshair').classList.toggle('rpg', w === 'rpg');
@@ -1578,7 +1661,7 @@
     spawnTimer = 1.5;
     // Hand the player the right weapon: bow for animal waves, RPG-7 for boss fights.
     if (WAVES[p]) setWeapon('bow');
-    else if (BOSS_FIGHTS[p]) setWeapon('rpg');
+    else if (BOSS_FIGHTS[p] && weaponReady('rpg')) setWeapon('rpg');
     switch (p) {
       case 'monkeys':
         toast('Vahşi maymunlar!', 'Hepsini okla vur — yol ancak o zaman açılır', 3.5);
@@ -1708,6 +1791,13 @@
     }
   }
 
+  function weaponLabel() {
+    const w = player.weapon;
+    if (w === 'rpg') return `🚀 RPG-7 × ${player.rockets}`;
+    if (GUNS[w]) return `🔫 ${GUNS[w].name} × ${player.ammo[w]}`;
+    return '🏹 Yay × ∞';
+  }
+
   function updateHud(dt) {
     $('hp-fill').style.width = `${(player.hp / PLAYER.maxHp) * 100}%`;
     const lowHp = player.hp < PLAYER.maxHp * 0.3;
@@ -1719,16 +1809,14 @@
       $('boss-name').textContent = boss.name;
       $('boss-fill').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
     }
-    $('weapon').innerHTML = player.weapon === 'rpg'
-      ? `🚀 RPG-7 × ${player.rockets}<small>[1] yay · [2] RPG-7</small>`
-      : `🏹 Yay<small>${player.hasRpg ? '[1] yay · [2] RPG-7' : 'sınırsız ok'}</small>`;
+    $('weapon').innerHTML = weaponLabel() + '<small>[Tab] sonraki silah</small>';
     if (toastT > 0) {
       toastT -= dt;
       if (toastT <= 0) $('toast').classList.remove('show');
     }
     hurtT = Math.max(0, hurtT - dt);
     $('hurt').style.opacity = Math.min(1, hurtT * 1.6 + (lowHp ? 0.25 : 0));
-    arrowBossNoticeT -= dt;
+    bossImmuneNoticeT -= dt;
   }
 
   // ---------- Camera ----------
@@ -1779,6 +1867,7 @@
     const cp = CHECKPOINTS[checkpoint];
     const armed = checkpoint >= 3;
     Object.assign(player, { hp: PLAYER.maxHp, hasRpg: armed, rockets: armed ? ROCKET.startAmmo : 0, cooldown: 0.3, invuln: 0, onGround: true });
+    player.ammo = { ak: GUNS.ak.start, pistol: GUNS.pistol.start };
     player.vel.set(0, 0, 0);
     setWeapon('bow');
     barriers.forEach((b, i) => b.set(i < checkpoint));
@@ -1981,17 +2070,17 @@
   });
 
   window.addEventListener('wheel', () => {
-    if (gameState === 'play' && player.hasRpg) setWeapon(player.weapon === 'bow' ? 'rpg' : 'bow');
+    if (gameState === 'play') nextWeapon();
   });
 
   window.addEventListener('keydown', (e) => {
     keys[e.code] = true;
-    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault();
     if (gameState === 'play') {
+      const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
       if (e.code === 'KeyE') takeHanging();
-      else if (e.code === 'Digit1') setWeapon('bow');
-      else if (e.code === 'Digit2') setWeapon('rpg');
-      else if (e.code === 'KeyQ' && player.hasRpg) setWeapon(player.weapon === 'bow' ? 'rpg' : 'bow');
+      else if (e.code === 'Tab' && !e.repeat) nextWeapon();
+      else if (digit >= 0) setWeapon(WEAPON_ORDER[digit]);
       else if (e.code === 'KeyP') {
         document.exitPointerLock();
         pause();

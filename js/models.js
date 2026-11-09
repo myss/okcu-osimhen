@@ -113,6 +113,43 @@ const Models = (() => {
     return g;
   }
 
+  // ---------- Firearms: muzzle toward -z, userData.muzzle marks the barrel tip ----------
+  function along(geo) {
+    geo.rotateX(Math.PI / 2);
+    return geo;
+  }
+
+  function ak47() {
+    const g = new THREE.Group();
+    const steel = mat(0x222326), wood = mat(0x9a5428), mag = mat(0xa0461c);
+    add(g, box(0.06, 0.09, 0.34), steel);
+    add(g, along(new THREE.CylinderGeometry(0.013, 0.013, 0.42, 8)), steel, 0, 0.01, -0.38);
+    add(g, along(new THREE.CylinderGeometry(0.016, 0.016, 0.26, 8)), steel, 0, 0.045, -0.27);
+    add(g, box(0.07, 0.07, 0.24), wood, 0, 0, -0.27);
+    add(g, box(0.012, 0.05, 0.012), steel, 0, 0.05, -0.55);
+    const stock = add(g, box(0.05, 0.1, 0.32), wood, 0, -0.03, 0.31);
+    stock.rotation.x = 0.12;
+    const grip = add(g, box(0.04, 0.11, 0.05), wood, 0, -0.09, 0.1);
+    grip.rotation.x = -0.3;
+    const magazine = add(g, box(0.04, 0.2, 0.08), mag, 0, -0.13, -0.05);
+    magazine.rotation.x = 0.35;
+    g.userData.muzzle = group(g, 0, 0.01, -0.6);
+    return g;
+  }
+
+  function revolver() {
+    const g = new THREE.Group();
+    const steel = mat(0xb9bcc2), dark = mat(0x2a2a2e), wood = mat(0x6e3b1a);
+    add(g, box(0.035, 0.06, 0.14), steel);
+    add(g, along(new THREE.CylinderGeometry(0.016, 0.016, 0.18, 8)), steel, 0, 0.015, -0.15);
+    add(g, along(new THREE.CylinderGeometry(0.036, 0.036, 0.07, 8)), dark, 0, 0.0, -0.02);
+    const grip = add(g, box(0.034, 0.11, 0.05), wood, 0, -0.07, 0.07);
+    grip.rotation.x = -0.35;
+    add(g, box(0.008, 0.025, 0.008), dark, 0, 0.04, -0.22);
+    g.userData.muzzle = group(g, 0, 0.015, -0.25);
+    return g;
+  }
+
   function rocket() {
     const g = new THREE.Group();
     const inner = group(g, 0, 0, 0.6);
@@ -183,29 +220,34 @@ const Models = (() => {
     add(quiver, new THREE.CylinderGeometry(0.075, 0.065, 0.6, 10), mat(0x6e4422));
     for (let k = 0; k < 4; k++) add(quiver, box(0.02, 0.1, 0.035), k % 2 ? arrowMat.vanes[2] : arrowMat.vanes[0], (k - 1.5) * 0.03, 0.34, 0);
 
-    const bowHolder = group(root, -0.26, 1.42, -0.62);
+    // One holder per weapon, placed where the hands hold it; each weapon has its own arm pose.
     const bowModel = bow();
-    bowHolder.add(bowModel);
-    const rpgHolder = group(root, 0.2, 1.62, -0.05);
-    const rpgModel = rpg();
-    rpgHolder.add(rpgModel);
-    rpgHolder.visible = false;
-
-    const rig = { root, legs, armL, armR, head, torso, bowHolder, bow: bowModel, rpgHolder };
-    rig.pose = (weapon) => {
-      bowHolder.visible = weapon === 'bow';
-      rpgHolder.visible = weapon === 'rpg';
-      if (weapon === 'rpg') {
-        armL.rotation.set(1.35, 0, -0.35);
-        armR.rotation.set(1.1, 0, 0.25);
-      } else {
-        armL.rotation.set(Math.PI / 2, 0, 0);
-        armR.rotation.set(1.5, 0, -0.9);
-      }
+    const holders = {
+      bow: group(root, -0.26, 1.42, -0.62),
+      ak: group(root, 0.12, 1.38, -0.3),
+      pistol: group(root, 0, 1.43, -0.6),
+      rpg: group(root, 0.2, 1.62, -0.05),
     };
+    holders.bow.add(bowModel);
+    holders.ak.add(ak47());
+    holders.pistol.add(revolver());
+    holders.rpg.add(rpg());
+    const ARM_POSES = {
+      bow: [[Math.PI / 2, 0, 0], [1.5, 0, -0.9]],
+      ak: [[1.45, 0, -0.5], [1.2, 0, 0.3]],
+      pistol: [[1.5, 0, -0.45], [1.5, 0, 0.45]],
+      rpg: [[1.35, 0, -0.35], [1.1, 0, 0.25]],
+    };
+
+    const rig = { root, legs, armL, armR, head, torso, holders, bowHolder: holders.bow, bow: bowModel, rpgHolder: holders.rpg };
+    rig.pose = (weapon) => {
+      for (const w in holders) holders[w].visible = w === weapon;
+      armL.rotation.set(...ARM_POSES[weapon][0]);
+      armR.rotation.set(...ARM_POSES[weapon][1]);
+    };
+    rig.muzzle = (weapon, out) => holders[weapon].children[0].userData.muzzle.getWorldPosition(out);
     rig.cheer = (t) => {
-      bowHolder.visible = false;
-      rpgHolder.visible = false;
+      for (const w in holders) holders[w].visible = false;
       armL.rotation.set(Math.PI - 0.25 + Math.sin(t * 8) * 0.25, 0, -0.35);
       armR.rotation.set(Math.PI - 0.25 + Math.sin(t * 8 + 1) * 0.25, 0, 0.35);
     };
@@ -441,5 +483,13 @@ const Models = (() => {
     return g;
   }
 
-  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, dragon, gorilla, banana, medkit, rocketBag, textTexture, mat, add, group };
+  function ammoBox() {
+    const g = new THREE.Group();
+    add(g, box(0.42, 0.24, 0.26), mat(0x4b5320));
+    add(g, box(0.43, 0.06, 0.27), mat(0xf2c200));
+    add(g, box(0.12, 0.03, 0.05), mat(0x262626), 0, 0.135, 0);
+    return g;
+  }
+
+  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, dragon, gorilla, banana, medkit, rocketBag, ammoBox, textTexture, mat, add, group };
 })();

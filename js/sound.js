@@ -221,6 +221,17 @@ const Sound = (() => {
     flap: play((t) => {
       noiseBurst(t, { freq: 250, peak: 0.25, attack: 0.05, decay: 0.25 });
     }),
+    rifle: play((t) => {
+      noiseBurst(t, { type: 'bandpass', freq: 1800, q: 0.6, peak: 0.32, decay: 0.07 });
+      tone(t, { from: 160, to: 60, peak: 0.3, decay: 0.08 });
+    }),
+    pistol: play((t) => {
+      noiseBurst(t, { freq: 3200, to: 500, peak: 0.5, decay: 0.2 });
+      tone(t, { from: 210, to: 50, peak: 0.45, decay: 0.16 });
+    }),
+    empty: play((t) => {
+      tone(t, { type: 'square', from: 1400, peak: 0.06, decay: 0.03 });
+    }),
     launch: play((t) => {
       noiseBurst(t, { type: 'bandpass', freq: 400, to: 2500, q: 0.7, peak: 0.5, attack: 0.01, decay: 0.45 });
       tone(t, { from: 160, to: 60, peak: 0.4, decay: 0.2 });
