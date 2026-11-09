@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Osimhen: Belgrad Ormanı</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="hud" class="hidden">
+    <div id="hp"><div class="label">CAN</div><div class="bar"><div id="hp-fill"></div></div></div>
+    <div id="objective"></div>
+    <div id="boss" class="hidden"><div class="label">KING KONG</div><div class="bar"><div id="boss-fill"></div></div></div>
+    <div id="weapon"></div>
+    <div id="crosshair"></div>
+    <div id="prompt"></div>
+    <div id="toast"></div>
+    <div id="hurt"></div>
+  </div>
+
+  <div id="fade"></div>
+
+  <div id="menu" class="overlay">
+    <div class="panel wide">
+      <h1>OSİMHEN</h1>
+      <h2>Belgrad Ormanı'ndan Kaçış</h2>
+      <p class="story">
+        Galatasaraylı Osimhen Belgrad Ormanı'nda kayboldu. Sırtında bir ok torbası var.
+        Vahşi maymunlar ve kurtlar saldırıyor! Hepsini yen, ormanın derinliklerinde bekleyen
+        <b>King Kong</b>'u alt et ve ormanın son kapısından çık. Ama dikkat: oklar King Kong'a işlemez —
+        ağaçlardan birinde asılı duran <b>RPG-7</b>'yi bulman lazım!
+      </p>
+      <div class="buttons">
+        <button id="btn-new">Yeni oyun</button>
+        <button id="btn-continue" class="secondary hidden"></button>
+      </div>
+      <div class="cols">
+        <div class="howto">
+          <b>Kontroller</b>
+          <table>
+            <tr><td>W A S D</td><td>Koş</td></tr>
+            <tr><td>Shift</td><td>Hızlı koş</td></tr>
+            <tr><td>Boşluk</td><td>Zıpla</td></tr>
+            <tr><td>Fare</td><td>Nişan al</td></tr>
+            <tr><td>Sol tık</td><td>Ateş et (basılı tut: seri atış)</td></tr>
+            <tr><td>E</td><td>Al (RPG-7, roket)</td></tr>
+            <tr><td>1 / 2 / Q</td><td>Yay ↔ RPG-7</td></tr>
+            <tr><td>Esc</td><td>Duraklat</td></tr>
+          </table>
+        </div>
+        <div class="side">
+          <b>Ayarlar</b>
+          <label><input type="checkbox" id="opt-sound"> Ses</label>
+          <label class="slider">Fare hassasiyeti <input type="range" id="opt-sens" min="0.3" max="2.5" step="0.1"></label>
+          <div id="stats"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="panel">
+      <h2>Duraklatıldı</h2>
+      <div class="buttons">
+        <button id="btn-resume">Devam et</button>
+        <button id="btn-quit" class="secondary">Ana menü</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dead" class="overlay hidden">
+    <div class="panel">
+      <h2>Osimhen yere düştü!</h2>
+      <p id="dead-text"></p>
+      <div class="buttons">
+        <button id="btn-retry">Tekrar dene</button>
+        <button id="btn-dead-menu" class="secondary">Ana menü</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="win" class="overlay clear hidden">
+    <div class="panel">
+      <h1>ŞAMPİYON!</h1>
+      <p>Osimhen ormandan kurtuldu ve RAMS Park'a girdi.<br>Bütün stat onu alkışlıyor!</p>
+      <p id="win-text"></p>
+      <div class="buttons">
+        <button id="btn-again">Tekrar oyna</button>
+        <button id="btn-win-menu" class="secondary">Ana menü</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/three.min.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/models.js"></script>
+  <script src="js/stadium.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
