@@ -1576,6 +1576,9 @@
     phaseKills = 0;
     phaseSpawned = 0;
     spawnTimer = 1.5;
+    // Hand the player the right weapon: bow for animal waves, RPG-7 for boss fights.
+    if (WAVES[p]) setWeapon('bow');
+    else if (BOSS_FIGHTS[p]) setWeapon('rpg');
     switch (p) {
       case 'monkeys':
         toast('Vahşi maymunlar!', 'Hepsini okla vur — yol ancak o zaman açılır', 3.5);
