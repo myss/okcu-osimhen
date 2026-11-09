@@ -837,7 +837,7 @@
     e.deadT = 0;
     e.pos.y = 0;
     if (e.type === 'monkey') Sound.monkeyDie();
-    else Sound.wolfDie();
+    else Sound.beastDie();
     if (e.counts) phaseKills++;
     const drop = e.type === 'monkey' ? (Math.random() < 0.4 ? 'banana' : null) : (Math.random() < 0.3 ? 'medkit' : null);
     if (drop) dropPickup(drop, e.pos.x, e.pos.z);
@@ -1464,7 +1464,7 @@
   function showMenu() {
     resetWorld();
     leaveStadium();
-    Sound.crowdStop();
+    Sound.musicStop();
     gameState = 'menu';
     for (const id of ['pause', 'dead', 'win', 'hud']) $(id).classList.add('hidden');
     $('menu').classList.remove('hidden');
@@ -1515,7 +1515,7 @@
     stadiumActive = false;
     scene.add(player.rig.root);
     player.rig.root.scale.setScalar(1);
-    Sound.crowdStop();
+    Sound.musicStop();
   }
 
   function updateFinale(dt) {
@@ -1530,7 +1530,7 @@
         stadiumActive = true;
         $('hud').classList.add('hidden');
         stadium.enter(player.rig);
-        Sound.crowdStart();
+        Sound.musicStart();
         finaleT = 0;
       }
       return;
