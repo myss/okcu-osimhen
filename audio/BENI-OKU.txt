@@ -1,5 +1,0 @@
-Stadyum müziği
-
-Oyunun sonunda RAMS Park sahnesinde bu klasördeki "stadyum.mp3" dosyası çalınır.
-İstediğin marşın kaydını bu klasöre "stadyum.mp3" adıyla koyman yeterli.
-Dosya yoksa oyun kendi davullu tribün marşını çalar.

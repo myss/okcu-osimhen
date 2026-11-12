@@ -1,4 +1,4 @@
-// Synthesized sound effects (WebAudio, no audio files) and the stadium music.
+// Synthesized sound effects (WebAudio, no audio files) and the stadium music (cimbom.js).
 const Sound = (() => {
   'use strict';
   let ctx = null, master = null, noise = null;
@@ -69,91 +69,108 @@ const Sound = (() => {
     };
   }
 
-  // ---------- Stadium music ----------
-  // A user-supplied recording in audio/stadyum.mp3 plays if present; otherwise an original
-  // drum-and-brass stand march is synthesized.
-  const MUSIC_FILE = 'audio/stadyum.mp3';
-  const BEAT = 60 / 132;
-  const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
-  // [midi note, beats]; 8 bars of 4 beats
-  const MELODY = [
-    [67, 1], [67, 1], [71, 1], [74, 1],
-    [76, 1], [74, 1], [71, 2],
-    [72, 1], [72, 1], [76, 1], [79, 1],
-    [78, 1], [76, 1], [74, 2],
-    [67, 1], [67, 1], [71, 1], [74, 1],
-    [76, 1], [79, 1], [76, 1], [74, 1],
-    [72, 1], [76, 1], [74, 1], [71, 0.5], [69, 0.5],
-    [67, 3], [0, 1],
-  ];
-  const BASS = [43, 43, 48, 50, 43, 48, 50, 43];
+  // ---------- Stadium music: plays CIMBOM_SONG (cimbom.js) ----------
+  // The instruments its parts use, as in kaplan-macerasi: a layer is a browser wave or a mix of
+  // harmonics; a layer with `sustain` rises over `attack`, falls toward `sustain` over `decay` while
+  // held, then fades over `release`.
+  const INSTRUMENTS = {
+    square: { layers: [{ wave: 'square' }] },
+    noise: { noise: true },
+    piano: {
+      layers: [
+        { harmonics: [1, 0.7, 0.45, 0.3, 0.2, 0.14, 0.1, 0.07, 0.05], gain: 0.45, attack: 0.004, decay: 0.35, sustain: 0, release: 0.15 },
+        { harmonics: [1, 0.35, 0.12, 0.05], gain: 0.6, attack: 0.004, decay: 1.8, sustain: 0, release: 0.25 },
+        { harmonics: [1, 0.35, 0.12, 0.05], detune: 4, gain: 0.25, attack: 0.004, decay: 1.6, sustain: 0, release: 0.25 },
+      ],
+    },
+  };
+  const MUSIC_VOLUME = 0.9;
+  const NOTE_OFFSETS = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
   let music = null;
+  const periodicWaves = new Map();
 
-  function scheduleBar(m, bar, t) {
-    const out = m.bus;
-    tone(t, { type: 'triangle', from: midi(BASS[bar % 8]), peak: 0.22, attack: 0.01, decay: BEAT * 1.8, out });
-    tone(t + BEAT * 2, { type: 'triangle', from: midi(BASS[bar % 8]), peak: 0.2, attack: 0.01, decay: BEAT * 1.8, out });
-    for (let b = 0; b < 4; b++) {
-      const bt = t + b * BEAT;
-      if (b % 2 === 0) tone(bt, { from: 85, to: 45, peak: 0.55, decay: 0.22, out });
-      else noiseBurst(bt, { type: 'highpass', freq: 2500, peak: 0.12, decay: 0.07, out });
-      noiseBurst(bt + BEAT / 2, { type: 'highpass', freq: 6000, peak: 0.04, decay: 0.03, out });
-    }
-    if (bar % 8 === 7) for (let k = 0; k < 4; k++) tone(t + BEAT * 3 + k * BEAT / 4, { from: 110, to: 60, peak: 0.35, decay: 0.1, out });
+  function noteFrequency(name) {
+    const [, letter, accidental, octave] = name.match(/^([A-G])([#b]?)(\d)$/);
+    const midi = 12 * (Number(octave) + 1) + NOTE_OFFSETS[letter] + (accidental === '#' ? 1 : accidental === 'b' ? -1 : 0);
+    return 440 * Math.pow(2, (midi - 69) / 12);
   }
 
-  function scheduleMelody(m, t) {
-    let at = t;
-    for (const [n, beats] of MELODY) {
-      if (n) {
-        const dur = beats * BEAT * 0.9;
-        tone(at, { type: 'square', from: midi(n), peak: 0.07, attack: 0.02, decay: dur, vibrato: 3, vibratoRate: 5.5, out: m.lead });
-        tone(at, { type: 'sawtooth', from: midi(n - 12), peak: 0.04, attack: 0.02, decay: dur, out: m.lead });
+  // Each step's notes, per part.
+  function parseSong(song) {
+    return song.parts.map(({ instrument, volume, notes }) => {
+      const slots = Array.from({ length: song.length }, () => []);
+      for (const [start, steps, name] of notes) {
+        if (start < song.length) slots[start].push({ frequency: name && noteFrequency(name), steps });
       }
-      at += beats * BEAT;
-    }
+      return { instrument: INSTRUMENTS[instrument], volume, slots };
+    });
   }
 
-  function startSynthMarch() {
-    const bus = ctx.createGain();
-    bus.gain.value = 0.9;
-    bus.connect(master);
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = 'lowpass';
-    lowpass.frequency.value = 2600;
-    lowpass.connect(bus);
-    const m = { bus, lead: lowpass, nextBar: ctx.currentTime + 0.1, bar: 0, timer: 0 };
-    m.timer = setInterval(() => {
-      while (m.nextBar < ctx.currentTime + 1.0) {
-        if (m.bar % 8 === 0) scheduleMelody(m, m.nextBar);
-        scheduleBar(m, m.bar, m.nextBar);
-        m.nextBar += BEAT * 4;
-        m.bar++;
+  function periodicWave(harmonics) {
+    const key = harmonics.join(',');
+    if (!periodicWaves.has(key)) {
+      const imag = new Float32Array([0, ...harmonics]);
+      periodicWaves.set(key, ctx.createPeriodicWave(new Float32Array(imag.length), imag));
+    }
+    return periodicWaves.get(key);
+  }
+
+  function playNote(instrument, frequency, held, volume, start, out) {
+    for (const layer of instrument.layers) {
+      const o = ctx.createOscillator();
+      if (layer.harmonics) o.setPeriodicWave(periodicWave(layer.harmonics));
+      else o.type = layer.wave;
+      o.frequency.value = frequency;
+      o.detune.value = layer.detune || 0;
+      const peak = volume * (layer.gain || 1);
+      const g = ctx.createGain();
+      let end = start + held;
+      if (layer.sustain === undefined) {
+        g.gain.setValueAtTime(0.0001, start);
+        g.gain.linearRampToValueAtTime(peak, start + Math.min(0.01, held / 4));
+        g.gain.exponentialRampToValueAtTime(0.0001, end);
+      } else {
+        const peakTime = start + layer.attack;
+        g.gain.setValueAtTime(0.0001, start);
+        g.gain.linearRampToValueAtTime(peak, peakTime);
+        g.gain.setTargetAtTime(peak * layer.sustain, peakTime, Math.max(layer.decay, 0.001) / 3);
+        const letGo = Math.max(end, peakTime);
+        g.gain.setTargetAtTime(0, letGo, Math.max(layer.release, 0.001) / 4);
+        end = letGo + layer.release;
       }
-    }, 200);
-    return () => {
-      clearInterval(m.timer);
-      bus.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.2);
-      setTimeout(() => bus.disconnect(), 1500);
-    };
+      o.connect(g).connect(out);
+      o.start(start);
+      o.stop(end + 0.02);
+    }
   }
 
   function musicStart() {
     if (!ready() || music) return;
-    const audio = new Audio(MUSIC_FILE);
-    audio.loop = true;
-    audio.volume = 0.85;
-    music = { stop: () => audio.pause() };
-    let fellBack = false;
-    const fallBack = () => {
-      if (fellBack || !music) return;
-      fellBack = true;
-      audio.pause();
-      music.stop = startSynthMarch();
+    const bus = ctx.createGain();
+    bus.gain.value = MUSIC_VOLUME;
+    bus.connect(master);
+    const parts = parseSong(CIMBOM_SONG);
+    const stepSeconds = 30 / CIMBOM_SONG.bpm;
+    let step = 0, next = ctx.currentTime + 0.1;
+    const timer = setInterval(() => {
+      while (next < ctx.currentTime + 0.25) {
+        for (const { instrument, volume, slots } of parts) {
+          for (const { frequency, steps } of slots[step % slots.length]) {
+            if (instrument.noise || !frequency) noiseBurst(next, { type: 'bandpass', freq: 6000, peak: volume, attack: 0.005, decay: 0.045, out: bus });
+            else playNote(instrument, frequency, steps * stepSeconds * 0.95, volume, next, bus);
+          }
+        }
+        step++;
+        next += stepSeconds;
+      }
+    }, 50);
+    music = {
+      stop() {
+        clearInterval(timer);
+        bus.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.2);
+        setTimeout(() => bus.disconnect(), 1500);
+      },
     };
-    audio.addEventListener('error', fallBack);
-    const p = audio.play();
-    if (p && p.catch) p.catch(fallBack);
   }
 
   function musicStop() {
