@@ -21,6 +21,8 @@
   const WEAPON_ORDER = ['bow', 'ak', 'pistol', 'rpg'];
   const ROCKET = { speed: 45, cooldown: 1.6, damage: 25, splash: 4.5, startAmmo: 5, bagAmmo: 4 };
   const MONKEY = { hp: 1, speed: 5.2, damage: 7, attackCd: 1.0, reach: 1.3 };
+  // Monkeys that join a boss fight are slower than the player and give up after a while.
+  const MINION = { speedFactor: 0.6, patience: 8, leaveTime: 3 };
   const BEASTS = {
     wolf: { hp: 1, speed: 7.2, lungeSpeed: 15, lungeRange: 7, damage: 11, attackCd: 1.2, reach: 1.5, pitch: 1, drop: 0.3 },
     lion: { hp: 2, speed: 6.6, lungeSpeed: 14, lungeRange: 9, damage: 16, attackCd: 1.3, reach: 2.0, pitch: 0.6, drop: 0.4 },
@@ -56,9 +58,9 @@
     bjk: { types: ['bjk'], total: 8, maxAlive: 4, zMin: -927, zMax: -798, interval: [0.8, 1.6], next: 'toFinal', weapon: 'tomato' },
   };
   const BOSS_FIGHTS = {
-    kong: { area: ARENA, trees: () => arenaTrees, minions: ['monkey', 'wolf'], interval: 7, maxAlive: 3, next: 'cats' },
-    trex: { area: LAIR, trees: () => lairTrees, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2, next: 'fb' },
-    dragons: { area: FINAL, trees: () => finalTrees, minions: ['monkey', 'wolf'], interval: 10, maxAlive: 2, next: 'escape' },
+    kong: { area: ARENA, trees: () => arenaTrees, minions: ['monkey'], interval: 7, maxAlive: 3, next: 'cats' },
+    trex: { area: LAIR, trees: () => lairTrees, minions: ['monkey'], interval: 10, maxAlive: 2, next: 'fb' },
+    dragons: { area: FINAL, trees: () => finalTrees, minions: ['monkey'], interval: 10, maxAlive: 2, next: 'escape' },
   };
   // open: how many log piles start open; the phase's own pile then opens with an animation.
   const CHECKPOINTS = [
@@ -1031,7 +1033,7 @@
       type, m, root: m.root, pos: m.root.position, scale, stats, footy,
       state: fromTree ? 'fall' : 'chase', vy: 0, yaw: 0,
       cd: footy ? rand(...FOOTBALLER.tackleCd) : 0.6, lungeCd: rand(0.5, 1.5), lungeT: 0, lungeDir: new V3(), bit: false,
-      t: Math.random() * 10, flash: 0, deadT: 0, fleeT: 0, getupT: 0, counts,
+      t: Math.random() * 10, flash: 0, deadT: 0, fleeT: 0, getupT: 0, chaseT: 0, leaveT: 0, counts,
       sph: (isMonkey ? MONKEY_SPHERES : footy ? FOOTBALLER_SPHERES : BEAST_SPHERES).map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz).multiplyScalar(scale), c: new V3(), r: r * scale })),
     };
     e.hp = e.stats.hp;
@@ -1116,7 +1118,7 @@
     const s = e.stats;
     const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z;
     const dist = Math.hypot(dx, dz) || 0.001;
-    let speed = 0;
+    let speed = 0, away = false;
     e.cd -= dt;
     e.lungeCd -= dt;
 
@@ -1129,7 +1131,21 @@
         emit('leaf', e.pos.clone().setY(0.3), 6, { speed: 2, up: 2, size: 0.07 });
       }
     } else if (e.type === 'monkey') {
-      if (dist > s.reach) speed = s.speed;
+      const minion = !e.counts;
+      if (minion) e.chaseT += dt;
+      if (e.state === 'leave') {
+        speed = s.speed;
+        away = true;
+        e.leaveT += dt;
+        if (e.leaveT > MINION.leaveTime) {
+          removeEnemy(e, true);
+          return;
+        }
+      } else if (minion && e.chaseT > MINION.patience) {
+        e.state = 'leave';
+        e.leaveT = 0;
+        Sound.screech();
+      } else if (dist > s.reach) speed = s.speed * (minion ? MINION.speedFactor : 1);
       else if (e.cd <= 0) {
         damagePlayer(s.damage, e.pos);
         e.cd = s.attackCd;
@@ -1158,11 +1174,13 @@
 
     if (speed > 0) {
       const wobble = e.type === 'monkey' ? Math.sin(e.t * 5) * 0.45 : 0;
-      const nx = dx / dist, nz = dz / dist;
+      const sign = away ? -1 : 1;
+      const nx = (sign * dx) / dist, nz = (sign * dz) / dist;
       e.pos.x += (nx - nz * wobble) * speed * dt;
       e.pos.z += (nz + nx * wobble) * speed * dt;
     }
-    e.yaw = e.state === 'lunge' ? Math.atan2(-e.lungeDir.x, -e.lungeDir.z) : Math.atan2(-dx, -dz);
+    if (e.state === 'lunge') e.yaw = Math.atan2(-e.lungeDir.x, -e.lungeDir.z);
+    else e.yaw = away ? Math.atan2(dx, dz) : Math.atan2(-dx, -dz);
     e.root.rotation.y = e.yaw;
 
     for (const o of enemies) {
