@@ -58,7 +58,7 @@
   const BOSS_FIGHTS = {
     kong: { area: ARENA, trees: () => arenaTrees, minions: ['monkey', 'wolf'], interval: 7, maxAlive: 3, next: 'cats' },
     trex: { area: LAIR, trees: () => lairTrees, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2, next: 'fb' },
-    dragons: { area: FINAL, trees: () => finalTrees, minions: ['wolf', 'tiger'], interval: 10, maxAlive: 2, next: 'escape' },
+    dragons: { area: FINAL, trees: () => finalTrees, minions: ['monkey', 'wolf'], interval: 10, maxAlive: 2, next: 'escape' },
   };
   // open: how many log piles start open; the phase's own pile then opens with an animation.
   const CHECKPOINTS = [
