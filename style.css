@@ -27,8 +27,9 @@ html, body {
 #hp-fill { background: linear-gradient(#ffd23d, #f2a200); }
 #hp.low #hp-fill { background: linear-gradient(#ff5a4a, #c4001f); }
 
-#boss { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); width: min(520px, 70vw); text-align: center; }
-#boss-fill { background: linear-gradient(#d22, #800); }
+#bosses { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); width: min(520px, 70vw); text-align: center; }
+.boss-bar { margin-bottom: 8px; }
+.boss-bar .fill { background: linear-gradient(#d22, #800); }
 
 #objective {
   position: absolute; left: 50%; top: 16px; transform: translateX(-50%);

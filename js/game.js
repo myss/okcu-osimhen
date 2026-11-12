@@ -27,35 +27,51 @@
     tiger: { hp: 2, speed: 8.2, lungeSpeed: 18, lungeRange: 10, damage: 13, attackCd: 1.1, reach: 1.9, pitch: 0.75, drop: 0.4 },
   };
   const KONG = { hp: 100, height: 5.4, speed: 4.2, slamDamage: 35, slamRadius: 6, rockDamage: 20 };
+  const TREX = { hp: 150, speed: 4.5, chargeSpeed: 17, biteDamage: 30, biteRange: 6, chargeDamage: 35 };
   const DRAGON = {
-    hp: 150, flyHeight: 13, orbitR: 30, orbitSpeed: 0.3, flyTime: 12, groundTime: 9,
+    hp: 100, flyHeight: 13, orbitR: 30, orbitSpeed: 0.3, flyTime: 12, groundTime: 9,
     fireballSpeed: 24, fireballDamage: 15, breathDamage: 6, breathRange: 13,
   };
+  // Flying enemies circle the player, then dive at them.
+  const BIRDS = {
+    canary: { hp: 1, cruise: 3.5, circle: 6, speed: 8, diveSpeed: 13, damage: 6, diveCd: [1.5, 3], pitch: 1.6, drop: 0.3 },
+    eagle: { hp: 2, cruise: 9, circle: 12, speed: 10, diveSpeed: 20, damage: 14, diveCd: [2, 4], pitch: 1.2, drop: 0.4 },
+  };
 
-  // Walkable level: forest path → King Kong's clearing → second path → dragon's lair → exit gate.
+  // Walkable level: forest path → King Kong's clearing → second path → T-Rex lair →
+  // third path (canaries, eagles) → final clearing with the two dragons → exit gate.
   const C1 = { x0: -14, x1: 14, z0: -306, z1: 3 };
   const ARENA = { x: 0, z: -350, r: 47 };
   const C2 = { x0: -14, x1: 14, z0: -570, z1: -392 };
   const LAIR = { x: 0, z: -615, r: 50 };
-  const REGIONS = [C1, ARENA, C2, LAIR];
-  const BARRIER_Z = [-150, -300, -398, -562];
-  const GATE_Z = -667;
+  const C3 = { x0: -14, x1: 14, z0: -937, z1: -660 };
+  const FINAL = { x: 0, z: -985, r: 52 };
+  const REGIONS = [C1, ARENA, C2, LAIR, C3, FINAL];
+  const BARRIER_Z = [-150, -300, -398, -562, -667, -795, -930];
+  const GATE_Z = -1039;
 
   const WAVES = {
     monkeys: { types: ['monkey'], total: 12, maxAlive: 4, zMin: -147, zMax: -2, interval: [0.8, 1.8], next: 'wolves' },
     wolves: { types: ['wolf'], total: 6, maxAlive: 3, zMin: -297, zMax: -153, interval: [1.0, 2.2], next: 'toArena' },
     cats: { types: ['lion', 'tiger'], total: 8, maxAlive: 3, zMin: -559, zMax: -401, interval: [1.2, 2.4], next: 'toLair' },
+    canaries: { types: ['canary'], total: 10, maxAlive: 4, zMin: -792, zMax: -670, interval: [0.8, 1.6], next: 'eagles' },
+    eagles: { types: ['eagle'], total: 6, maxAlive: 3, zMin: -927, zMax: -798, interval: [1.2, 2.4], next: 'toFinal' },
   };
   const BOSS_FIGHTS = {
-    kong: { area: ARENA, minions: ['monkey', 'wolf'], interval: 7, maxAlive: 3 },
-    dragon: { area: LAIR, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2 },
+    kong: { area: ARENA, trees: () => arenaTrees, minions: ['monkey', 'wolf'], interval: 7, maxAlive: 3, next: 'cats' },
+    trex: { area: LAIR, trees: () => lairTrees, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2, next: 'canaries' },
+    dragons: { area: FINAL, trees: () => finalTrees, minions: ['canary', 'eagle'], interval: 10, maxAlive: 2, next: 'escape' },
   };
+  // open: how many log piles start open; the phase's own pile then opens with an animation.
   const CHECKPOINTS = [
-    { name: 'Maymunlar', z: -3, phase: 'monkeys' },
-    { name: 'Kurtlar', z: -156, phase: 'wolves' },
-    { name: 'King Kong', z: -302, phase: 'toArena' },
-    { name: 'Aslanlar ve kaplanlar', z: -385, phase: 'cats' },
-    { name: 'Ejderha', z: -566, phase: 'toLair' },
+    { name: 'Maymunlar', z: -3, phase: 'monkeys', open: 0 },
+    { name: 'Kurtlar', z: -156, phase: 'wolves', open: 1 },
+    { name: 'King Kong', z: -302, phase: 'toArena', open: 2 },
+    { name: 'Aslanlar ve kaplanlar', z: -385, phase: 'cats', open: 2 },
+    { name: 'T-Rex', z: -566, phase: 'toLair', open: 4 },
+    { name: 'Kanaryalar', z: -650, phase: 'canaries', open: 4 },
+    { name: 'Kara kartallar', z: -797, phase: 'eagles', open: 5 },
+    { name: 'Ejderhalar', z: -932, phase: 'toFinal', open: 6 },
   ];
 
   // ---------- Save data (browser localStorage) ----------
@@ -124,11 +140,11 @@
   }
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(600, 1100),
-    new THREE.MeshLambertMaterial({ map: repeatTexture(256, 150, 275, (g, s) => speckle(g, s, '#4b7430', 7000, [70, 40], 40, [18, 22])) })
+    new THREE.PlaneGeometry(600, 1500),
+    new THREE.MeshLambertMaterial({ map: repeatTexture(256, 150, 375, (g, s) => speckle(g, s, '#4b7430', 7000, [70, 40], 40, [18, 22])) })
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.z = -330;
+  ground.position.z = -500;
   ground.receiveShadow = true;
   scene.add(ground);
 
@@ -151,6 +167,7 @@
   }
   windingPath(5, -307);
   windingPath(-393, -567);
+  windingPath(-661, -936);
 
   function clearing(area, texture) {
     const geo = new THREE.CircleGeometry(area.r + 2, 64);
@@ -160,6 +177,7 @@
   }
   clearing(ARENA, repeatTexture(256, 24, 24, (g, s) => speckle(g, s, '#6b6a3a', 6000, [35, 40], 35, [20, 25])));
   clearing(LAIR, repeatTexture(256, 26, 26, (g, s) => speckle(g, s, '#3e3631', 7000, [10, 25], 25, [10, 22])));
+  clearing(FINAL, repeatTexture(256, 26, 26, (g, s) => speckle(g, s, '#55703a', 6000, [60, 40], 35, [22, 22])));
 
   // ---------- Trees (instanced) ----------
   function seeded(a) {
@@ -211,12 +229,12 @@
     return Math.abs(x) < 5 + margin && z < GATE_Z + 2 && z > GATE_Z - 14;
   }
 
-  for (let i = 0; i < 4500; i++) {
-    const x = rr(-120, 120), z = rr(-770, 55);
+  for (let i = 0; i < 6500; i++) {
+    const x = rr(-120, 120), z = rr(-1140, 55);
     if (inPlayArea(x, z, 1.2)) continue;
     addTree(x, z, rr(0.8, 1.5), rng() < 0.25 ? 'pine' : 'oak');
   }
-  for (const [z0, z1, avoid] of [[-12, -295, BARRIER_Z[0]], [-405, -555, null]]) {
+  for (const [z0, z1, avoid] of [[-12, -295, BARRIER_Z[0]], [-405, -555, null], [-675, -925, BARRIER_Z[5]]]) {
     for (let i = 0; i < 30; i++) {
       const x = rr(-11, 11), z = rr(z1, z0);
       if ((avoid && Math.abs(z - avoid) < 7) || Math.abs(x) < 2.5) continue;
@@ -239,6 +257,7 @@
   }
   const arenaTrees = bigTreeRing(ARENA);
   const lairTrees = bigTreeRing(LAIR);
+  const finalTrees = bigTreeRing(FINAL);
 
   {
     const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 1, 7);
@@ -277,7 +296,7 @@
       scene.add(im);
     }
     const bark = Models.mat(0x4f3520);
-    for (const t of [...arenaTrees, ...lairTrees]) {
+    for (const t of [...arenaTrees, ...lairTrees, ...finalTrees]) {
       const dx = t.hang.x - t.x, dz = t.hang.z - t.z;
       const len = Math.hypot(dx, dz) + 0.4;
       const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.2, len, 6), bark);
@@ -288,16 +307,17 @@
     }
   }
 
-  // Bushes for ground detail, boulders around the dragon's lair (no collision)
+  // Bushes for ground detail, boulders around the T-Rex lair (no collision)
   {
     const bushGeo = new THREE.IcosahedronGeometry(1, 0);
-    const bushes = new THREE.InstancedMesh(bushGeo, Models.mat(0xffffff, { flatShading: true }), 700);
+    const bushes = new THREE.InstancedMesh(bushGeo, Models.mat(0xffffff, { flatShading: true }), 1100);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new V3(), sc = new V3(), col = new THREE.Color();
+    const onPath = (z) => z > -306 || (z < -393 && z > -567) || (z < -661 && z > -936);
     let n = 0;
-    for (let i = 0; i < 3000 && n < 700; i++) {
-      const x = rr(-40, 40), z = rr(-690, 20);
+    for (let i = 0; i < 5000 && n < 1100; i++) {
+      const x = rr(-40, 40), z = rr(-1060, 20);
       if (inPlayArea(x, z, -1) && rng() < 0.85) continue;
-      if (Math.abs(x) < 4 && (z > -306 || (z < -393 && z > -567))) continue;
+      if (Math.abs(x) < 4 && onPath(z)) continue;
       const s = rr(0.4, 1.0);
       q.setFromAxisAngle(Y_AXIS, rng() * 6.28);
       m.compose(p.set(x, s * 0.35, z), q, sc.set(s * 1.3, s * 0.8, s * 1.3));
@@ -665,6 +685,9 @@
     () => `Kütükler kapalı! Önce bütün kurtları yen — kalan: ${waveLeft('wolves')}`,
     () => "Kütükler kapalı! Önce King Kong'u yen",
     () => `Kütükler kapalı! Önce bütün aslan ve kaplanları yen — kalan: ${waveLeft('cats')}`,
+    () => "Kütükler kapalı! Önce T-Rex'i yen",
+    () => `Kütükler kapalı! Önce bütün kanaryaları yen — kalan: ${waveLeft('canaries')}`,
+    () => `Kütükler kapalı! Önce bütün kara kartalları yen — kalan: ${waveLeft('eagles')}`,
   ];
 
   // Explains what the player can do here: take the hanging item, or why a log pile / the gate is still closed.
@@ -674,7 +697,7 @@
     }
     const i = barriers.findIndex((b) => !b.open);
     if (i >= 0 && player.pos.z < barriers[i].z + 6) return BARRIER_HINTS[i]();
-    if (!gate.isOpen && player.pos.z < GATE_Z + 8 && Math.abs(player.pos.x) < 8) return 'Kapı kapalı! Önce ejderhayı yen';
+    if (!gate.isOpen && player.pos.z < GATE_Z + 8 && Math.abs(player.pos.x) < 8) return 'Kapı kapalı! Önce iki ejderhayı da yen';
     return '';
   }
 
@@ -707,7 +730,7 @@
   }
 
   function livingBosses() {
-    return [kong, dragon].filter((b) => b && b.state !== 'dead');
+    return bosses.filter((b) => b.state !== 'dead');
   }
 
   function firstHit(a, b) {
@@ -897,7 +920,7 @@
     emit('smoke', player.rig.rpgHolder.getWorldPosition(new V3()).addScaledVector(dir, -2.2), 10, { speed: 2, up: 0.5, gravity: -0.5, size: 0.35, life: 0.9, grow: true });
     const fight = BOSS_FIGHTS[phase];
     if (player.rockets === 0 && fight && livingBosses().length && !hanging) {
-      hangItem('ammo', phase === 'dragon' ? lairTrees : arenaTrees);
+      hangItem('ammo', fight.trees());
       setTimeout(() => toast('Roketler bitti!', 'Ağaçlardan birinde yeni roketler asılı', 3), 900);
     }
   }
@@ -947,30 +970,32 @@
     if (p.distanceTo(player.pos) < 3.5) damagePlayer(15, p);
   }
 
-  // ---------- Enemies: monkeys and four-legged beasts ----------
+  // ---------- Enemies: monkeys, four-legged beasts and birds ----------
   const enemies = [];
   const MONKEY_SPHERES = [[0, 0.75, 0, 0.42], [0, 1.2, -0.08, 0.27]];
   const BEAST_SPHERES = [[0, 0.74, 0.15, 0.42], [0, 0.8, -0.45, 0.36], [0, 0.98, -0.75, 0.25]];
+  const BIRD_SPHERES = [[0, 0, 0, 0.5]];
 
   function spawnEnemy(type, x, z, fromTree, counts) {
-    const isMonkey = type === 'monkey';
-    const m = isMonkey ? Models.monkey() : Models.beast(type);
+    const isMonkey = type === 'monkey', isBird = !!BIRDS[type];
+    const m = isMonkey ? Models.monkey() : isBird ? Models.bird(type) : Models.beast(type);
     const scale = isMonkey ? 1 : m.scale;
-    m.root.position.set(x, fromTree ? 6.5 : 0, z);
+    const stats = isMonkey ? MONKEY : isBird ? BIRDS[type] : BEASTS[type];
+    m.root.position.set(x, isBird ? stats.cruise + 4 : fromTree ? 6.5 : 0, z);
     scene.add(m.root);
     const e = {
-      type, m, root: m.root, pos: m.root.position, scale,
-      stats: isMonkey ? MONKEY : BEASTS[type],
-      state: fromTree ? 'fall' : 'chase', vy: 0, yaw: 0,
+      type, m, root: m.root, pos: m.root.position, scale, stats, isBird,
+      state: isBird ? 'circle' : fromTree ? 'fall' : 'chase', vy: 0, yaw: 0,
       cd: 0.6, lungeCd: rand(0.5, 1.5), lungeT: 0, lungeDir: new V3(), bit: false,
+      orbitA: Math.random() * Math.PI * 2, diveCd: isBird ? rand(...stats.diveCd) : 0, retreatT: 0,
       t: Math.random() * 10, flash: 0, deadT: 0, counts,
-      sph: (isMonkey ? MONKEY_SPHERES : BEAST_SPHERES).map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz).multiplyScalar(scale), c: new V3(), r: r * scale })),
+      sph: (isMonkey ? MONKEY_SPHERES : isBird ? BIRD_SPHERES : BEAST_SPHERES).map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz).multiplyScalar(scale), c: new V3(), r: r * scale })),
     };
     e.hp = e.stats.hp;
     e.yaw = Math.atan2(-(player.pos.x - x), -(player.pos.z - z));
     updateSpheres(e);
     enemies.push(e);
-    if (isMonkey) Sound.screech();
+    if (isMonkey || isBird) Sound.screech();
     else Sound.growl(e.stats.pitch);
     return e;
   }
@@ -985,14 +1010,16 @@
     e.flash = 0.15;
     if (dir) e.pos.addScaledVector(dir.clone().setY(0), 0.35);
     if (e.hp <= 0) killEnemy(e);
+    else if (e.isBird) Sound.screech();
     else if (e.type !== 'monkey') Sound.growl(e.stats.pitch);
   }
 
   function killEnemy(e) {
     e.state = 'dead';
     e.deadT = 0;
-    e.pos.y = 0;
-    if (e.type === 'monkey') Sound.monkeyDie();
+    e.vy = 0;
+    if (!e.isBird) e.pos.y = 0;
+    if (e.type === 'monkey' || e.isBird) Sound.monkeyDie();
     else Sound.beastDie(e.stats.pitch);
     if (e.counts) phaseKills++;
     if (e.type === 'monkey') {
@@ -1013,11 +1040,21 @@
     for (const fm of e.m.flashMats) fm.emissive.setHex(e.flash > 0 ? 0x990000 : 0);
 
     if (e.state === 'dead') {
+      if (e.isBird && e.pos.y > 0) {
+        e.vy -= 20 * dt;
+        e.pos.y = Math.max(0, e.pos.y + e.vy * dt);
+        return;
+      }
       e.deadT += dt;
       e.m.body.rotation.z = Math.min(1, e.deadT / 0.3) * 1.5;
       e.m.body.position.y = Math.min(1, e.deadT / 0.3) * 0.25;
       if (e.deadT > 2.2) e.pos.y -= dt * 0.8;
       if (e.deadT > 3.2) removeEnemy(e, true);
+      return;
+    }
+
+    if (e.isBird) {
+      updateBird(e, dt);
       return;
     }
 
@@ -1074,7 +1111,7 @@
     e.root.rotation.y = e.yaw;
 
     for (const o of enemies) {
-      if (o === e || o.state === 'dead') continue;
+      if (o === e || o.state === 'dead' || o.isBird) continue;
       const ox = e.pos.x - o.pos.x, oz = e.pos.z - o.pos.z, d = Math.hypot(ox, oz);
       const min = 0.5 * (e.scale + o.scale);
       if (d < min && d > 1e-4) {
@@ -1088,6 +1125,53 @@
     }
     updateSpheres(e);
     animateEnemy(e, speed > 0 || e.state === 'lunge', dist);
+  }
+
+  // Birds circle the player at cruise height, dive at their chest, then climb away and circle again.
+  const birdTarget = new V3(), birdStep = new V3();
+  function updateBird(e, dt) {
+    const s = e.stats, m = e.m;
+    e.diveCd -= dt;
+    let speed = s.speed;
+    if (e.state === 'circle') {
+      e.orbitA += dt * (s.speed / s.circle) * 0.6;
+      birdTarget.set(player.pos.x + Math.cos(e.orbitA) * s.circle, s.cruise + Math.sin(e.t * 2) * 0.5, player.pos.z + Math.sin(e.orbitA) * s.circle);
+      const near = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s.circle * 1.6;
+      if (e.diveCd <= 0 && near) {
+        e.state = 'dive';
+        Sound.screech();
+      }
+    } else if (e.state === 'dive') {
+      birdTarget.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
+      speed = s.diveSpeed;
+      const reached = e.pos.distanceTo(birdTarget) < 1.2;
+      if (reached) damagePlayer(s.damage, e.pos);
+      if (reached || e.pos.y < 0.6) {
+        e.state = 'retreat';
+        e.retreatT = 1.0;
+      }
+    } else {
+      e.retreatT -= dt;
+      birdTarget.set(e.pos.x * 2 - player.pos.x, s.cruise + 3, e.pos.z * 2 - player.pos.z);
+      if (e.retreatT <= 0) {
+        e.state = 'circle';
+        e.diveCd = rand(...s.diveCd);
+      }
+    }
+    birdStep.subVectors(birdTarget, e.pos);
+    const len = birdStep.length();
+    if (len > 1e-3) {
+      e.pos.addScaledVector(birdStep, Math.min(len, speed * dt) / len);
+      e.yaw = Math.atan2(-birdStep.x, -birdStep.z);
+    }
+    e.pos.y = Math.max(0.4, e.pos.y);
+    clampToLevel(e.pos, 0.5);
+    e.root.rotation.y = e.yaw;
+    m.body.rotation.x = e.state === 'dive' ? -0.6 : e.state === 'retreat' ? 0.4 : 0;
+    const flap = e.state === 'dive' ? 0.25 : Math.sin(e.t * (e.type === 'canary' ? 16 : 9)) * 0.6;
+    m.wings[0].rotation.z = -flap;
+    m.wings[1].rotation.z = flap;
+    updateSpheres(e);
   }
 
   function animateEnemy(e, moving, dist) {
@@ -1213,8 +1297,10 @@
   }
 
   // ---------- Bosses ----------
-  // A boss has: title, name, hp, maxHp, state, root, sph (sph[0] is the core used for splash), hurt(dmg, heavy).
-  let kong = null, dragon = null;
+  // A boss has: title, name, phase, hp, maxHp, state, root, sph (sph[0] is the core used for splash),
+  // hurt(dmg, heavy) and update(dt).
+  const bosses = [];
+  let kong = null;
 
   function setState(b, s) {
     b.state = s;
@@ -1253,7 +1339,7 @@
     m.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(m.root);
     kong = {
-      title: "King Kong'a", name: 'KING KONG', m, root: m.root, pos: m.root.position,
+      title: "King Kong'a", name: 'KING KONG', phase: 'kong', update: updateKong, m, root: m.root, pos: m.root.position,
       hp: KONG.hp, maxHp: KONG.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0,
       throwCd: 4, beatCd: 12, slamCenter: new V3(),
       sph: [[0, 1.05, 0, 0.58], [0, 0.3, 0, 0.42], [0, 1.7, -0.12, 0.3]].map(([x, y, z, r]) => ({ off: new V3(x, y, z).multiplyScalar(S), c: new V3(), r: r * S })),
@@ -1271,6 +1357,7 @@
       },
     };
     updateSpheres(kong);
+    bosses.push(kong);
     Sound.roar();
     setTimeout(() => Sound.chestBeat(), 600);
   }
@@ -1425,39 +1512,202 @@
     }
   }
 
-  // ----- Dragon: circles the lair spitting fireballs, then lands to breathe fire -----
-  function spawnDragon() {
-    const m = Models.dragon();
+  // ----- T-Rex: chases, bites up close and charges from afar -----
+  function spawnTrex() {
+    const m = Models.trex();
     m.root.rotation.order = 'YXZ';
-    m.root.position.set(LAIR.x, 28, LAIR.z - 60);
+    m.root.position.set(LAIR.x, 0, LAIR.z - 30);
     m.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(m.root);
-    dragon = {
-      title: 'Ejderhaya', name: 'EJDERHA', m, root: m.root, pos: m.root.position,
-      hp: DRAGON.hp, maxHp: DRAGON.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0, vy: 0,
-      orbitA: -Math.PI / 2, fireCd: 3, breathCd: 1, breathTick: 0, groundT: 0, jawT: 0,
-      landFrom: new V3(), landTo: new V3(),
-      sph: [[0, 2.4, 0, 1.8], [0, 3.6, -2.8, 0.8], [0, 4.4, -3.7, 0.9], [0, 2.3, 2.9, 0.8]].map(([x, y, z, r]) => ({ off: new V3(x, y, z), c: new V3(), r })),
+    const rex = {
+      title: "T-Rex'e", name: 'T-REX', phase: 'trex', update: updateTrex, m, root: m.root, pos: m.root.position,
+      hp: TREX.hp, maxHp: TREX.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0,
+      chargeCd: 5, roarCd: 12, chargeDir: new V3(), bitThis: false,
+      sph: [[0, 3.7, 0, 2.2], [0, 5.2, -4.0, 1.1], [0, 1.6, 0.3, 1.2], [0, 3.4, 3.8, 1.0]].map(([x, y, z, r]) => ({ off: new V3(x, y, z), c: new V3(), r })),
       hurt(d, heavy) {
         if (this.state === 'dead') return;
         this.hp = Math.max(0, this.hp - d);
         this.flash = heavy ? 0.3 : 0.08;
         if (this.hp <= 0) {
-          bossDown(this, 'Ejderha düşüyor!');
+          bossDown(this, 'T-Rex yıkılıyor!');
+          Sound.roar(0.8);
+        } else if (heavy && this.state !== 'charge') {
+          setState(this, 'stagger');
+          Sound.roar(0.8);
+        }
+      },
+    };
+    updateSpheres(rex);
+    bosses.push(rex);
+    Sound.roar(0.8);
+  }
+
+  function updateTrex(dt) {
+    const b = this, m = b.m;
+    b.t += dt;
+    b.stateT += dt;
+    if (b.flash > 0) b.flash -= dt;
+    for (const fm of m.flashMats) fm.emissive.setHex(b.flash > 0 ? 0x880000 : 0);
+    const dx = player.pos.x - b.pos.x, dz = player.pos.z - b.pos.z;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    const walk = (rate, amp) => {
+      const p = b.t * rate;
+      m.legs[0].rotation.x = Math.sin(p) * amp;
+      m.legs[1].rotation.x = -Math.sin(p) * amp;
+      m.body.position.y = Math.abs(Math.sin(p)) * 0.15;
+    };
+    const jaw = (open, k = 10) => { m.jaw.rotation.x += (open - m.jaw.rotation.x) * Math.min(1, dt * k); };
+    m.tail.forEach((s, i) => { s.rotation.y = Math.sin(b.t * 2.5 - i * 0.5) * 0.12; });
+    m.head.rotation.x = 0;
+    m.body.rotation.x = 0;
+
+    switch (b.state) {
+      case 'intro':
+      case 'roar':
+        faceToward(b, dx, dz, dt, 3);
+        m.head.rotation.x = 0.35;
+        jaw(0.7);
+        if (b.stateT > 2.2) {
+          setState(b, 'chase');
+          b.roarCd = rand(11, 15);
+        }
+        break;
+      case 'chase':
+        faceToward(b, dx, dz, dt, 3);
+        jaw(0.1);
+        if (dist > TREX.biteRange - 1) {
+          b.pos.x += (dx / dist) * TREX.speed * dt;
+          b.pos.z += (dz / dist) * TREX.speed * dt;
+          walk(4, 0.5);
+        }
+        b.chargeCd -= dt;
+        b.roarCd -= dt;
+        if (dist < TREX.biteRange) setState(b, 'bite');
+        else if (dist > 14 && b.chargeCd <= 0) {
+          setState(b, 'chargeWind');
+          Sound.roar(0.8);
+        } else if (b.roarCd <= 0) {
+          setState(b, 'roar');
+          Sound.roar(0.8);
+        }
+        break;
+      case 'bite':
+        faceToward(b, dx, dz, dt, 4);
+        if (b.stateT < 0.5) {
+          m.head.rotation.x = 0.4;
+          jaw(0.8);
+        } else {
+          m.head.rotation.x = -0.25;
+          jaw(0, 25);
+          if (!b.bitThis && dist < TREX.biteRange + 1) {
+            b.bitThis = true;
+            damagePlayer(TREX.biteDamage, b.pos);
+            Sound.thunk();
+          }
+        }
+        if (b.stateT > 1.1) {
+          b.bitThis = false;
+          setState(b, 'chase');
+        }
+        break;
+      case 'chargeWind':
+        faceToward(b, dx, dz, dt, 5);
+        m.head.rotation.x = -0.2;
+        jaw(0.5);
+        walk(10, 0.15);
+        if (b.stateT > 0.9) {
+          b.chargeDir.set(dx / dist, 0, dz / dist);
+          b.bitThis = false;
+          setState(b, 'charge');
+        }
+        break;
+      case 'charge': {
+        b.pos.addScaledVector(b.chargeDir, TREX.chargeSpeed * dt);
+        m.head.rotation.x = -0.3;
+        jaw(0.6);
+        walk(9, 0.7);
+        if (!b.bitThis && dist < 3.5) {
+          b.bitThis = true;
+          damagePlayer(TREX.chargeDamage, b.pos);
+        }
+        const edge = Math.hypot(b.pos.x - LAIR.x, b.pos.z - LAIR.z) > LAIR.r - 6;
+        if (b.stateT > 1.6 || edge) {
+          setState(b, 'recover');
+          b.chargeCd = rand(5, 8);
+          if (edge) {
+            Sound.slam();
+            shake(0.5);
+          }
+        }
+        break;
+      }
+      case 'recover':
+        jaw(0.2);
+        if (b.stateT > 1.0) setState(b, 'chase');
+        break;
+      case 'stagger':
+        m.body.rotation.x = 0.15 * Math.sin(Math.min(1, b.stateT / 0.6) * Math.PI);
+        jaw(0.8);
+        if (b.stateT > 0.6) setState(b, 'chase');
+        break;
+      case 'dead': {
+        const k = Math.min(1, b.stateT / 1.6);
+        b.root.rotation.z = k * k * 1.45;
+        jaw(0.8);
+        if (k >= 1 && !b.landed) {
+          b.landed = true;
+          Sound.slam();
+          shake(1);
+          emit('dust', b.pos.clone().setY(0.3), 50, { speed: 10, up: 3, spread: 4, size: 0.45, life: 1.5 });
+        }
+        break;
+      }
+    }
+    if (b.state !== 'dead') {
+      clampInto(b.pos, LAIR, 5);
+      updateSpheres(b);
+    }
+  }
+
+  // ----- Dragons: circle the final clearing spitting fireballs, then land to breathe fire -----
+  const DRAGON_RIDERS = {
+    fb: { name: 'SARI-LACİVERT EJDERHA', orbitA: -Math.PI / 2, flyTime: DRAGON.flyTime, pitch: 1.4 },
+    bjk: { name: 'SİYAH-BEYAZ EJDERHA', orbitA: Math.PI / 2, flyTime: DRAGON.flyTime + 8, pitch: 1.1 },
+  };
+
+  function spawnDragon(palette) {
+    const o = DRAGON_RIDERS[palette];
+    const m = Models.dragon(palette);
+    m.root.rotation.order = 'YXZ';
+    m.root.position.set(FINAL.x + Math.cos(o.orbitA) * 60, 28, FINAL.z + Math.sin(o.orbitA) * 60);
+    m.root.traverse((x) => { if (x.isMesh) x.castShadow = true; });
+    scene.add(m.root);
+    const d = {
+      title: 'Ejderhaya', name: o.name, phase: 'dragons', update: updateDragon, m, root: m.root, pos: m.root.position,
+      hp: DRAGON.hp, maxHp: DRAGON.hp, state: 'intro', stateT: 0, t: 0, yaw: 0, flash: 0, vy: 0,
+      orbitA: o.orbitA, flyTime: o.flyTime, pitch: o.pitch, fireCd: 3, breathCd: 1, breathTick: 0, groundT: 0, jawT: 0,
+      landFrom: new V3(), landTo: new V3(),
+      sph: [[0, 2.4, 0, 1.8], [0, 3.6, -2.8, 0.8], [0, 4.4, -3.7, 0.9], [0, 2.3, 2.9, 0.8]].map(([x, y, z, r]) => ({ off: new V3(x, y, z), c: new V3(), r })),
+      hurt(dmg, heavy) {
+        if (this.state === 'dead') return;
+        this.hp = Math.max(0, this.hp - dmg);
+        this.flash = heavy ? 0.3 : 0.08;
+        if (this.hp <= 0) {
+          bossDown(this, `${o.name} düşüyor!`);
           this.vy = 0;
-          Sound.roar(1.4);
+          Sound.roar(this.pitch);
         } else if (heavy) {
-          Sound.roar(1.4);
+          Sound.roar(this.pitch);
           if (this.state === 'ground' || this.state === 'breath') setState(this, 'stagger');
         }
       },
     };
-    updateSpheres(dragon);
-    Sound.roar(1.4);
+    updateSpheres(d);
+    bosses.push(d);
+    Sound.roar(o.pitch);
   }
 
-  function dragonFireball() {
-    const d = dragon;
+  function dragonFireball(d) {
     const from = d.m.mouth.getWorldPosition(new V3());
     const target = player.pos.clone().add(new V3(player.vel.x * 0.6, 1, player.vel.z * 0.6));
     const vel = target.sub(from).normalize().multiplyScalar(DRAGON.fireballSpeed);
@@ -1497,7 +1747,7 @@
 
   const mouthPos = new V3(), breathDir = new V3();
   function updateDragon(dt) {
-    const d = dragon, m = d.m;
+    const d = this, m = d.m;
     d.t += dt;
     d.stateT += dt;
     if (d.flash > 0) d.flash -= dt;
@@ -1523,7 +1773,7 @@
       case 'intro':
       case 'fly': {
         d.orbitA += dt * DRAGON.orbitSpeed;
-        const tx = LAIR.x + Math.cos(d.orbitA) * DRAGON.orbitR, tz = LAIR.z + Math.sin(d.orbitA) * DRAGON.orbitR;
+        const tx = FINAL.x + Math.cos(d.orbitA) * DRAGON.orbitR, tz = FINAL.z + Math.sin(d.orbitA) * DRAGON.orbitR;
         const ty = DRAGON.flyHeight + Math.sin(d.t * 0.8) * 1.5;
         const k = Math.min(1, dt * (d.state === 'intro' ? 0.8 : 1.5));
         d.pos.x += (tx - d.pos.x) * k;
@@ -1538,15 +1788,16 @@
         }
         d.fireCd -= dt;
         if (d.fireCd <= 0) {
-          dragonFireball();
-          d.fireCd = rand(1.6, 2.8);
+          dragonFireball(d);
+          d.fireCd = rand(2.2, 3.6);
         }
-        if (d.stateT > DRAGON.flyTime) {
+        if (d.stateT > d.flyTime) {
           setState(d, 'land');
+          d.flyTime = DRAGON.flyTime;
           d.landFrom.copy(d.pos);
           const awayX = d.pos.x - player.pos.x, awayZ = d.pos.z - player.pos.z, l = Math.hypot(awayX, awayZ) || 1;
           d.landTo.set(player.pos.x + (awayX / l) * 14, 0, player.pos.z + (awayZ / l) * 14);
-          clampInto(d.landTo, LAIR, 8);
+          clampInto(d.landTo, FINAL, 8);
           Sound.flap();
         }
         break;
@@ -1616,7 +1867,7 @@
         d.pos.y = DRAGON.flyHeight * smooth(k);
         flap(7, 0.8);
         if (k >= 1) {
-          d.orbitA = Math.atan2(d.pos.z - LAIR.z, d.pos.x - LAIR.x);
+          d.orbitA = Math.atan2(d.pos.z - FINAL.z, d.pos.x - FINAL.x);
           setState(d, 'fly');
         }
         break;
@@ -1639,14 +1890,15 @@
         break;
     }
     if (d.state !== 'dead') {
-      clampInto(d.pos, LAIR, 6);
+      clampInto(d.pos, FINAL, 6);
       updateSpheres(d);
     }
   }
 
   // ---------- Phases ----------
   let gameState = 'menu'; // menu | play | paused | dead | finale | won
-  let phase = 'monkeys'; // monkeys | wolves | toArena | kong | cats | toLair | dragon | escape
+  // monkeys | wolves | toArena | kong | cats | toLair | trex | canaries | eagles | toFinal | dragons | escape
+  let phase = 'monkeys';
   let phaseKills = 0, phaseSpawned = 0, spawnTimer = 0, minionTimer = 0, bossDeadT = 0, rpgHintT = 0, runTime = 0, runFrom = 0;
 
   function reachCheckpoint(i) {
@@ -1692,27 +1944,50 @@
         break;
       case 'toLair':
         barriers[3].openUp();
-        toast('Yol açıldı!', 'Ejderhanın inine ilerle...', 3);
+        toast('Yol açıldı!', "T-Rex'in yuvasına ilerle...", 3);
         break;
-      case 'dragon':
-        spawnDragon();
+      case 'trex':
+        spawnTrex();
         hangItem(player.hasRpg ? 'ammo' : 'rpg', lairTrees);
         reachCheckpoint(4);
-        minionTimer = BOSS_FIGHTS.dragon.interval;
-        toast('EJDERHA!', 'Pullarına ok işlemez — RPG-7 ile vur! Ağaçlarda roket var', 4);
+        minionTimer = BOSS_FIGHTS.trex.interval;
+        toast('T-REX!', 'Derisine ok ve mermi işlemez — RPG-7 ile vur! Ağaçlarda roket var', 4);
+        break;
+      case 'canaries':
+        barriers[4].openUp();
+        reachCheckpoint(5);
+        toast('Kanaryalar saldırıyor!', 'Sarı-lacivert kanaryalar havadan dalıyor — hepsini vur', 3.5);
+        break;
+      case 'eagles':
+        barriers[5].openUp();
+        reachCheckpoint(6);
+        toast('Kara kartallar!', 'Siyah-beyaz kartallar yüksekten pike yapıyor — hepsini vur', 3.5);
+        break;
+      case 'toFinal':
+        barriers[6].openUp();
+        toast('Yol açıldı!', 'Son meydana ilerle...', 3);
+        break;
+      case 'dragons':
+        spawnDragon('fb');
+        spawnDragon('bjk');
+        hangItem(player.hasRpg ? 'ammo' : 'rpg', finalTrees);
+        reachCheckpoint(7);
+        minionTimer = BOSS_FIGHTS.dragons.interval;
+        toast('İKİ EJDERHA!', 'Sarı-lacivert ve siyah-beyaz ejderhalar — RPG-7 ile vur! Ağaçlarda roket var', 4.5);
         break;
       case 'escape':
         gate.open();
-        toast('Ejderha yenildi!', 'Ormanın son kapısı açıldı — çık!', 4);
+        toast('Ejderhalar yenildi!', 'Ormanın son kapısı açıldı — çık!', 4);
         break;
     }
+    buildBossBars();
   }
 
   function spawnAhead(type, zMin, zMax) {
     let z = player.pos.z - rand(14, 38);
     if (z < zMin) z = player.pos.z + rand(12, 22);
     z = clamp(z, zMin, zMax);
-    const x = type === 'monkey' ? rand(-12, 12) : (Math.random() < 0.5 ? -1 : 1) * (C1.x1 - 1);
+    const x = type === 'monkey' || BIRDS[type] ? rand(-12, 12) : (Math.random() < 0.5 ? -1 : 1) * (C1.x1 - 1);
     spawnEnemy(type, x, z, type === 'monkey', true);
     phaseSpawned++;
   }
@@ -1737,15 +2012,16 @@
     if (phase === 'toArena') {
       if (player.pos.z < -312) setPhase('kong');
     } else if (phase === 'toLair') {
-      if (player.pos.z < -575) setPhase('dragon');
+      if (player.pos.z < -575) setPhase('trex');
+    } else if (phase === 'toFinal') {
+      if (player.pos.z < -945) setPhase('dragons');
     } else if (phase === 'escape') {
       if (player.pos.z < GATE_Z - 1.5) startFinale();
     } else {
       const fight = BOSS_FIGHTS[phase];
-      const boss = phase === 'kong' ? kong : dragon;
-      if (boss.state === 'dead') {
+      if (phaseBosses().every((b) => b.state === 'dead')) {
         bossDeadT += dt;
-        if (bossDeadT > 3) setPhase(phase === 'kong' ? 'cats' : 'escape');
+        if (bossDeadT > 3) setPhase(fight.next);
         return;
       }
       minionTimer -= dt;
@@ -1783,12 +2059,30 @@
       case 'toArena': return '🌲 Ormanın derinliklerine ilerle';
       case 'kong': return player.hasRpg ? "🦍 King Kong'u RPG-7 ile vur!" : "🔎 Ağaçlarda asılı RPG-7'yi bul!";
       case 'cats': return `🦁 Aslan ve kaplanlar: ${phaseKills} / ${WAVES.cats.total}`;
-      case 'toLair': return '🔥 Ejderhanın inine ilerle';
-      case 'dragon':
-        if (!player.hasRpg) return "🔎 Ağaçlarda asılı RPG-7'yi bul!";
-        return player.rockets > 0 ? '🐉 Ejderhayı RPG-7 ile vur!' : '🔎 Ağaçlarda roket ara!';
+      case 'toLair': return "🦖 T-Rex'in yuvasına ilerle";
+      case 'trex': return bossObjective("🦖 T-Rex'i RPG-7 ile vur!");
+      case 'canaries': return `🐤 Kanaryalar: ${phaseKills} / ${WAVES.canaries.total}`;
+      case 'eagles': return `🦅 Kara kartallar: ${phaseKills} / ${WAVES.eagles.total}`;
+      case 'toFinal': return '⚔️ Son meydana ilerle';
+      case 'dragons': return bossObjective('🐉 İki ejderhayı da RPG-7 ile vur!');
       default: return '🚪 Kapıdan çık!';
     }
+  }
+
+  function bossObjective(text) {
+    if (!player.hasRpg) return "🔎 Ağaçlarda asılı RPG-7'yi bul!";
+    return player.rockets > 0 ? text : '🔎 Ağaçlarda roket ara!';
+  }
+
+  function phaseBosses() {
+    return bosses.filter((b) => b.phase === phase);
+  }
+
+  // One health bar per boss of the current fight.
+  function buildBossBars() {
+    $('bosses').innerHTML = phaseBosses()
+      .map((b) => `<div class="boss-bar"><div class="label">${b.name}</div><div class="bar"><div class="fill"></div></div></div>`)
+      .join('');
   }
 
   function weaponLabel() {
@@ -1803,12 +2097,8 @@
     const lowHp = player.hp < PLAYER.maxHp * 0.3;
     $('hp').classList.toggle('low', lowHp);
     $('objective').textContent = objectiveText();
-    const boss = phase === 'kong' ? kong : phase === 'dragon' ? dragon : null;
-    $('boss').classList.toggle('hidden', !boss);
-    if (boss) {
-      $('boss-name').textContent = boss.name;
-      $('boss-fill').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
-    }
+    const fills = $('bosses').querySelectorAll('.fill');
+    phaseBosses().forEach((b, i) => { if (fills[i]) fills[i].style.width = `${(b.hp / b.maxHp) * 100}%`; });
     $('weapon').innerHTML = weaponLabel() + '<small>[Tab] sonraki silah</small>';
     if (toastT > 0) {
       toastT -= dt;
@@ -1854,8 +2144,9 @@
       particlePool.push(p.m);
     }
     particles.length = 0;
-    for (const b of [kong, dragon]) if (b) b.root.removeFromParent();
-    kong = dragon = null;
+    for (const b of bosses) b.root.removeFromParent();
+    bosses.length = 0;
+    kong = null;
     if (hanging) hanging.group.removeFromParent();
     hanging = null;
     lastHangTree = null;
@@ -1870,7 +2161,7 @@
     player.ammo = { ak: GUNS.ak.start, pistol: GUNS.pistol.start };
     player.vel.set(0, 0, 0);
     setWeapon('bow');
-    barriers.forEach((b, i) => b.set(i < checkpoint));
+    barriers.forEach((b, i) => b.set(i < cp.open));
     gate.set(false);
     player.pos.set(0, 0, cp.z);
     yaw = 0;
@@ -2006,8 +2297,7 @@
     updatePlayer(dt);
     updatePhase(dt);
     for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i]) updateEnemy(enemies[i], dt);
-    if (kong) updateKong(dt);
-    if (dragon) updateDragon(dt);
+    for (const b of bosses) b.update(dt);
     updateArrows(dt);
     updateRockets(dt);
     updateRocks(dt);

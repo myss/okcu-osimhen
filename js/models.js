@@ -367,10 +367,17 @@ const Models = (() => {
     return pivot;
   }
 
-  function dragon() {
+  // Team-coloured dragons for the final fight.
+  const DRAGON_COLORS = {
+    fb: { scales: 0x13286e, belly: 0xf5d300, wing: 0xf5d300, horn: 0xf5d300, eye: 0xffffff },
+    bjk: { scales: 0x141414, belly: 0xf2f2f2, wing: 0xe6e6e6, horn: 0xffffff, eye: 0xff2020 },
+  };
+
+  function dragon(palette) {
+    const c = DRAGON_COLORS[palette];
     const root = new THREE.Group();
-    const scales = mat(0x8e1414), belly = mat(0xd9a441), horn = mat(0xe8dcc0), eye = glow(0xffe000);
-    const wingM = mat(0x5a0d0d, { side: THREE.DoubleSide });
+    const scales = mat(c.scales), belly = mat(c.belly), horn = mat(c.horn), eye = glow(c.eye);
+    const wingM = mat(c.wing, { side: THREE.DoubleSide });
     const body = group(root);
     add(body, sphere(1.2, 16, 12), scales, 0, 2.4, 0).scale.set(1, 0.9, 2.0);
     add(body, sphere(1.0, 14, 10), belly, 0, 2.1, -0.3).scale.set(0.85, 0.7, 1.7);
@@ -418,6 +425,94 @@ const Models = (() => {
       legs.push(leg);
     }
     return { root, body, neck, head, jaw, mouth, wings, tail, legs, flashMats: [scales] };
+  }
+
+  // ---------- T-Rex: about 6.5 m tall, 13 m long; head toward -z ----------
+  function trex() {
+    const root = new THREE.Group();
+    const skin = mat(0x5b6e2e), belly = mat(0xc9b98a), dark = mat(0x3c4a1e), tooth = mat(0xfaf6e8), eye = glow(0xffd000);
+    const body = group(root);
+    add(body, sphere(1.5, 16, 12), skin, 0, 3.7, 0).scale.set(1, 1.05, 1.8);
+    add(body, sphere(1.25, 14, 10), belly, 0, 3.3, -0.6).scale.set(0.9, 0.85, 1.4);
+    add(body, sphere(0.95, 12, 10), skin, 0, 4.5, -2.3).scale.set(1, 1.1, 1.2);
+    const head = group(body, 0, 5.2, -3.1);
+    add(head, box(1.1, 1.05, 2.2), skin, 0, 0.1, -0.9);
+    add(head, box(1.15, 0.22, 1.2), dark, 0, 0.7, -0.6);
+    add(head, sphere(0.1, 8, 6), eye, -0.5, 0.45, -0.5);
+    add(head, sphere(0.1, 8, 6), eye, 0.5, 0.45, -0.5);
+    const toothGeo = new THREE.ConeGeometry(0.06, 0.2, 5);
+    toothGeo.rotateX(Math.PI);
+    for (let i = 0; i < 6; i++) {
+      for (const s of [-1, 1]) add(head, toothGeo, tooth, 0.45 * s, -0.5, -0.4 - i * 0.28);
+    }
+    const jaw = group(head, 0, -0.4, 0);
+    add(jaw, box(1.0, 0.35, 2.0), belly, 0, -0.15, -0.9);
+    const jawTooth = new THREE.ConeGeometry(0.05, 0.16, 5);
+    for (let i = 0; i < 5; i++) {
+      for (const s of [-1, 1]) add(jaw, jawTooth, tooth, 0.4 * s, 0.1, -0.5 - i * 0.28);
+    }
+    const arms = [];
+    for (const s of [-1, 1]) {
+      const arm = group(body, 0.75 * s, 3.4, -1.8);
+      add(arm, box(0.18, 0.6, 0.2), skin, 0, -0.25, -0.1);
+      arm.rotation.x = 0.9;
+      arms.push(arm);
+    }
+    const legs = [];
+    for (const s of [-1, 1]) {
+      const leg = group(body, 0.9 * s, 3.4, 0.3);
+      add(leg, box(0.8, 1.7, 1.0), skin, 0, -0.8, 0);
+      const shin = group(leg, 0, -1.6, 0.1);
+      add(shin, box(0.45, 1.6, 0.5), dark, 0, -0.75, 0);
+      add(shin, box(0.65, 0.25, 1.2), dark, 0, -1.6, -0.35);
+      legs.push(leg);
+    }
+    const tail = [];
+    let parent = body;
+    let at = new V3(0, 3.8, 2.4);
+    for (let i = 0; i < 6; i++) {
+      const seg = group(parent, at.x, at.y, at.z);
+      add(seg, sphere(0.95 - i * 0.14, 10, 8), skin, 0, 0, 0.55).scale.set(1, 0.9, 1.3);
+      tail.push(seg);
+      parent = seg;
+      at = new V3(0, -0.12, 1.05);
+    }
+    return { root, body, head, jaw, arms, legs, tail, flashMats: [skin] };
+  }
+
+  // ---------- Giant birds: Fenerbahçe canary and Beşiktaş black eagle; centered on the origin ----------
+  const BIRDS = {
+    canary: { body: 0xf5d300, wing: 0xf5d300, tip: 0x13286e, head: 0xf5d300, tail: 0x13286e, beak: 0xff9a1a, span: 1.0, scale: 1.1 },
+    eagle: { body: 0x161616, wing: 0x1c1c1c, tip: 0xf2f2f2, head: 0xf2f2f2, tail: 0xf2f2f2, beak: 0xf5c000, span: 1.7, scale: 1.4 },
+  };
+
+  function bird(kind) {
+    const o = BIRDS[kind];
+    const root = new THREE.Group();
+    const bodyM = mat(o.body);
+    const body = group(root);
+    add(body, sphere(0.35, 12, 10), bodyM).scale.set(0.9, 0.85, 1.4);
+    const head = group(body, 0, 0.18, -0.45);
+    add(head, sphere(0.22, 12, 10), mat(o.head));
+    const beak = new THREE.ConeGeometry(0.08, 0.26, 6);
+    beak.rotateX(-Math.PI / 2);
+    add(head, beak, mat(o.beak), 0, -0.03, -0.27);
+    add(head, sphere(0.04, 6, 4), glow(0x111111), -0.12, 0.06, -0.12);
+    add(head, sphere(0.04, 6, 4), glow(0x111111), 0.12, 0.06, -0.12);
+    const tailGeo = new THREE.ConeGeometry(0.22, 0.5, 4);
+    tailGeo.rotateX(Math.PI / 2);
+    add(body, tailGeo, mat(o.tail), 0, 0.02, 0.6).scale.set(1, 0.3, 1);
+    const wingM = mat(o.wing, { side: THREE.DoubleSide }), tipM = mat(o.tip, { side: THREE.DoubleSide });
+    const wings = [];
+    for (const s of [-1, 1]) {
+      const pivot = group(body, 0.2 * s, 0.08, -0.05);
+      const inner = add(pivot, box(o.span * 0.6, 0.04, 0.45), wingM, s * o.span * 0.3, 0, 0);
+      inner.castShadow = true;
+      add(pivot, box(o.span * 0.45, 0.04, 0.35), tipM, s * o.span * 0.82, 0, 0.05);
+      wings.push(pivot);
+    }
+    root.scale.setScalar(o.scale);
+    return { root, body, head, wings, scale: o.scale, flashMats: [bodyM] };
   }
 
   // ---------- King Kong: built ~1.94 m tall, scaled up by the caller ----------
@@ -491,5 +586,5 @@ const Models = (() => {
     return g;
   }
 
-  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, dragon, gorilla, banana, medkit, rocketBag, ammoBox, textTexture, mat, add, group };
+  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, bird, dragon, trex, gorilla, banana, medkit, rocketBag, ammoBox, textTexture, mat, add, group };
 })();
