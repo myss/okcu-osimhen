@@ -221,6 +221,17 @@ const Sound = (() => {
     flap: play((t) => {
       noiseBurst(t, { freq: 250, peak: 0.25, attack: 0.05, decay: 0.25 });
     }),
+    whistle: play((t) => {
+      tone(t, { type: 'sine', from: 2900, peak: 0.12, attack: 0.02, decay: 0.25, vibrato: 90, vibratoRate: 30 });
+      tone(t + 0.35, { type: 'sine', from: 2900, peak: 0.12, attack: 0.02, decay: 0.6, vibrato: 90, vibratoRate: 30 });
+    }),
+    splat: play((t) => {
+      noiseBurst(t, { freq: 900, to: 200, q: 2, peak: 0.45, decay: 0.15 });
+      tone(t, { from: 180, to: 70, peak: 0.25, decay: 0.1 });
+    }),
+    ouch: play((t) => {
+      tone(t, { type: 'triangle', from: 520, to: 260, peak: 0.12, attack: 0.02, decay: 0.3, vibrato: 20, vibratoRate: 9 });
+    }),
     rifle: play((t) => {
       noiseBurst(t, { type: 'bandpass', freq: 1800, q: 0.6, peak: 0.32, decay: 0.07 });
       tone(t, { from: 160, to: 60, peak: 0.3, decay: 0.08 });

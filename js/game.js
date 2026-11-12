@@ -32,14 +32,12 @@
     hp: 100, flyHeight: 13, orbitR: 30, orbitSpeed: 0.3, flyTime: 12, groundTime: 9,
     fireballSpeed: 24, fireballDamage: 15, breathDamage: 6, breathRange: 13,
   };
-  // Flying enemies circle the player, then dive at them.
-  const BIRDS = {
-    canary: { hp: 1, cruise: 3.5, circle: 6, speed: 8, diveSpeed: 13, damage: 6, diveCd: [1.5, 3], pitch: 1.6, drop: 0.3 },
-    eagle: { hp: 2, cruise: 9, circle: 12, speed: 10, diveSpeed: 20, damage: 14, diveCd: [2, 4], pitch: 1.2, drop: 0.4 },
-  };
+  // Rival footballers slide-tackle the player; a tomato in the face sends them running off.
+  const FOOTBALLER = { hp: 1, speed: 6.2, tackleRange: 5, tackleSpeed: 12, damage: 8, tackleCd: [1.5, 2.5], fleeTime: 3 };
+  const TOMATO = { speed: 24, gravity: 9.8, cooldown: 0.35 };
 
   // Walkable level: forest path → King Kong's clearing → second path → T-Rex lair →
-  // third path (canaries, eagles) → final clearing with the two dragons → exit gate.
+  // third path (Fenerbahçe, then Beşiktaş players) → final clearing with the two dragons → exit gate.
   const C1 = { x0: -14, x1: 14, z0: -306, z1: 3 };
   const ARENA = { x: 0, z: -350, r: 47 };
   const C2 = { x0: -14, x1: 14, z0: -570, z1: -392 };
@@ -54,13 +52,13 @@
     monkeys: { types: ['monkey'], total: 12, maxAlive: 4, zMin: -147, zMax: -2, interval: [0.8, 1.8], next: 'wolves' },
     wolves: { types: ['wolf'], total: 6, maxAlive: 3, zMin: -297, zMax: -153, interval: [1.0, 2.2], next: 'toArena' },
     cats: { types: ['lion', 'tiger'], total: 8, maxAlive: 3, zMin: -559, zMax: -401, interval: [1.2, 2.4], next: 'toLair' },
-    canaries: { types: ['canary'], total: 10, maxAlive: 4, zMin: -792, zMax: -670, interval: [0.8, 1.6], next: 'eagles' },
-    eagles: { types: ['eagle'], total: 6, maxAlive: 3, zMin: -927, zMax: -798, interval: [1.2, 2.4], next: 'toFinal' },
+    fb: { types: ['fb'], total: 8, maxAlive: 4, zMin: -792, zMax: -670, interval: [0.8, 1.6], next: 'bjk', weapon: 'tomato' },
+    bjk: { types: ['bjk'], total: 8, maxAlive: 4, zMin: -927, zMax: -798, interval: [0.8, 1.6], next: 'toFinal', weapon: 'tomato' },
   };
   const BOSS_FIGHTS = {
     kong: { area: ARENA, trees: () => arenaTrees, minions: ['monkey', 'wolf'], interval: 7, maxAlive: 3, next: 'cats' },
-    trex: { area: LAIR, trees: () => lairTrees, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2, next: 'canaries' },
-    dragons: { area: FINAL, trees: () => finalTrees, minions: ['canary', 'eagle'], interval: 10, maxAlive: 2, next: 'escape' },
+    trex: { area: LAIR, trees: () => lairTrees, minions: ['wolf', 'monkey'], interval: 10, maxAlive: 2, next: 'fb' },
+    dragons: { area: FINAL, trees: () => finalTrees, minions: ['wolf', 'tiger'], interval: 10, maxAlive: 2, next: 'escape' },
   };
   // open: how many log piles start open; the phase's own pile then opens with an animation.
   const CHECKPOINTS = [
@@ -69,8 +67,8 @@
     { name: 'King Kong', z: -302, phase: 'toArena', open: 2 },
     { name: 'Aslanlar ve kaplanlar', z: -385, phase: 'cats', open: 2 },
     { name: 'T-Rex', z: -566, phase: 'toLair', open: 4 },
-    { name: 'Kanaryalar', z: -650, phase: 'canaries', open: 4 },
-    { name: 'Kara kartallar', z: -797, phase: 'eagles', open: 5 },
+    { name: 'Fenerbahçe', z: -650, phase: 'fb', open: 4 },
+    { name: 'Beşiktaş', z: -797, phase: 'bjk', open: 5 },
     { name: 'Ejderhalar', z: -932, phase: 'toFinal', open: 6 },
   ];
 
@@ -476,6 +474,7 @@
     dust: Models.mat(0x8c7556),
     rock: Models.mat(0x77736c, { flatShading: true }),
     poof: Models.mat(0xe6e6e6),
+    tomato: Models.mat(0xd0180f),
     leaf: Models.mat(0x4f8a34),
   };
   const particles = [], particlePool = [];
@@ -686,8 +685,8 @@
     () => "Kütükler kapalı! Önce King Kong'u yen",
     () => `Kütükler kapalı! Önce bütün aslan ve kaplanları yen — kalan: ${waveLeft('cats')}`,
     () => "Kütükler kapalı! Önce T-Rex'i yen",
-    () => `Kütükler kapalı! Önce bütün kanaryaları yen — kalan: ${waveLeft('canaries')}`,
-    () => `Kütükler kapalı! Önce bütün kara kartalları yen — kalan: ${waveLeft('eagles')}`,
+    () => `Kütükler kapalı! Önce bütün Fenerbahçelileri kaçır — kalan: ${waveLeft('fb')}`,
+    () => `Kütükler kapalı! Önce bütün Beşiktaşlıları kaçır — kalan: ${waveLeft('bjk')}`,
   ];
 
   // Explains what the player can do here: take the hanging item, or why a log pile / the gate is still closed.
@@ -744,7 +743,7 @@
     };
     if (b.y <= 0 && a.y > 0) consider(a.y / (a.y - b.y), 'ground', null);
     for (const e of enemies) {
-      if (e.state === 'dead') continue;
+      if (e.state === 'dead' || e.state === 'flee') continue;
       for (const s of e.sph) consider(segSphereT(a, segAB, len2, s.c, s.r), 'enemy', e);
     }
     for (const boss of livingBosses()) {
@@ -769,7 +768,7 @@
   }
 
   // ---------- Weapons ----------
-  const arrows = [], stuckArrows = [], rockets = [], rocks = [], fireballs = [];
+  const arrows = [], stuckArrows = [], rockets = [], rocks = [], fireballs = [], tomatoes = [];
   let bossImmuneNoticeT = 0;
 
   function noticeBossImmune(boss, what) {
@@ -799,6 +798,9 @@
       player.cooldown = ROCKET.cooldown;
     } else if (GUNS[player.weapon]) {
       fireGun(player.weapon);
+    } else if (player.weapon === 'tomato') {
+      throwTomato(computeAimPoint());
+      player.cooldown = TOMATO.cooldown;
     } else {
       fireArrow(computeAimPoint());
       player.cooldown = ARROW.cooldown;
@@ -840,6 +842,47 @@
     if (player.ammo[id] === 0) {
       toast(`${gun.name} mermisi bitti!`, 'Hayvanlardan düşen mermi kutularını topla', 2);
       nextWeapon();
+    }
+  }
+
+  function throwTomato(target) {
+    const start = player.rig.holders.tomato.getWorldPosition(new V3());
+    const d = target.clone().sub(start);
+    const t = Math.max(0.05, d.length() / TOMATO.speed);
+    const vel = d.divideScalar(t);
+    vel.y += 0.5 * TOMATO.gravity * t;
+    const mesh = Models.tomato();
+    mesh.position.copy(start);
+    scene.add(mesh);
+    tomatoes.push({ mesh, pos: start, vel, life: 0 });
+    Sound.throwRock();
+  }
+
+  const groundSplatGeo = new THREE.CircleGeometry(0.35, 12);
+  groundSplatGeo.rotateX(-Math.PI / 2);
+  function updateTomatoes(dt) {
+    for (let i = tomatoes.length - 1; i >= 0; i--) {
+      const tm = tomatoes[i];
+      tm.life += dt;
+      prevPos.copy(tm.pos);
+      tm.vel.y -= TOMATO.gravity * dt;
+      tm.pos.addScaledVector(tm.vel, dt);
+      tm.mesh.position.copy(tm.pos);
+      tm.mesh.rotation.x += dt * 12;
+      const h = firstHit(prevPos, tm.pos);
+      if (!h && tm.life < 3) continue;
+      if (h) {
+        Sound.splat();
+        emit('tomato', h.point, 10, { speed: 3, up: 2, size: 0.07, life: 0.6 });
+        if (h.kind === 'enemy') hitEnemy(h.obj, 1, null);
+        else if (h.kind === 'ground') {
+          addEffect(groundSplatGeo, 0xc8150f, new V3(h.point.x, 0.03, h.point.z), 6, (m, k) => {
+            m.material.opacity = k < 0.7 ? 0.9 : 0.9 * (1 - k) / 0.3;
+          });
+        }
+      }
+      tm.mesh.removeFromParent();
+      tomatoes.splice(i, 1);
     }
   }
 
@@ -970,33 +1013,33 @@
     if (p.distanceTo(player.pos) < 3.5) damagePlayer(15, p);
   }
 
-  // ---------- Enemies: monkeys, four-legged beasts and birds ----------
+  // ---------- Enemies: monkeys, four-legged beasts and rival footballers ----------
   const enemies = [];
   const MONKEY_SPHERES = [[0, 0.75, 0, 0.42], [0, 1.2, -0.08, 0.27]];
   const BEAST_SPHERES = [[0, 0.74, 0.15, 0.42], [0, 0.8, -0.45, 0.36], [0, 0.98, -0.75, 0.25]];
-  const BIRD_SPHERES = [[0, 0, 0, 0.5]];
+  const FOOTBALLER_SPHERES = [[0, 1.05, 0, 0.36], [0, 1.72, 0, 0.2]];
+  const isFootballer = (type) => type === 'fb' || type === 'bjk';
 
   function spawnEnemy(type, x, z, fromTree, counts) {
-    const isMonkey = type === 'monkey', isBird = !!BIRDS[type];
-    const m = isMonkey ? Models.monkey() : isBird ? Models.bird(type) : Models.beast(type);
+    const isMonkey = type === 'monkey', footy = isFootballer(type);
+    const m = isMonkey ? Models.monkey() : footy ? Models.footballer(type) : Models.beast(type);
     const scale = isMonkey ? 1 : m.scale;
-    const stats = isMonkey ? MONKEY : isBird ? BIRDS[type] : BEASTS[type];
-    m.root.position.set(x, isBird ? stats.cruise + 4 : fromTree ? 6.5 : 0, z);
+    const stats = isMonkey ? MONKEY : footy ? FOOTBALLER : BEASTS[type];
+    m.root.position.set(x, fromTree ? 6.5 : 0, z);
     scene.add(m.root);
     const e = {
-      type, m, root: m.root, pos: m.root.position, scale, stats, isBird,
-      state: isBird ? 'circle' : fromTree ? 'fall' : 'chase', vy: 0, yaw: 0,
-      cd: 0.6, lungeCd: rand(0.5, 1.5), lungeT: 0, lungeDir: new V3(), bit: false,
-      orbitA: Math.random() * Math.PI * 2, diveCd: isBird ? rand(...stats.diveCd) : 0, retreatT: 0,
-      t: Math.random() * 10, flash: 0, deadT: 0, counts,
-      sph: (isMonkey ? MONKEY_SPHERES : isBird ? BIRD_SPHERES : BEAST_SPHERES).map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz).multiplyScalar(scale), c: new V3(), r: r * scale })),
+      type, m, root: m.root, pos: m.root.position, scale, stats, footy,
+      state: fromTree ? 'fall' : 'chase', vy: 0, yaw: 0,
+      cd: footy ? rand(...FOOTBALLER.tackleCd) : 0.6, lungeCd: rand(0.5, 1.5), lungeT: 0, lungeDir: new V3(), bit: false,
+      t: Math.random() * 10, flash: 0, deadT: 0, fleeT: 0, getupT: 0, counts,
+      sph: (isMonkey ? MONKEY_SPHERES : footy ? FOOTBALLER_SPHERES : BEAST_SPHERES).map(([ox, oy, oz, r]) => ({ off: new V3(ox, oy, oz).multiplyScalar(scale), c: new V3(), r: r * scale })),
     };
     e.hp = e.stats.hp;
     e.yaw = Math.atan2(-(player.pos.x - x), -(player.pos.z - z));
     updateSpheres(e);
     enemies.push(e);
-    if (isMonkey || isBird) Sound.screech();
-    else Sound.growl(e.stats.pitch);
+    if (isMonkey) Sound.screech();
+    else if (!footy) Sound.growl(e.stats.pitch);
     return e;
   }
 
@@ -1005,21 +1048,38 @@
   }
 
   function hitEnemy(e, dmg, dir) {
-    if (e.state === 'dead') return;
+    if (e.state === 'dead' || e.state === 'flee') return;
+    if (e.footy) {
+      splatFootballer(e);
+      return;
+    }
     e.hp -= dmg;
     e.flash = 0.15;
     if (dir) e.pos.addScaledVector(dir.clone().setY(0), 0.35);
     if (e.hp <= 0) killEnemy(e);
-    else if (e.isBird) Sound.screech();
     else if (e.type !== 'monkey') Sound.growl(e.stats.pitch);
+  }
+
+  // A tomato in the face: the player covers their face and runs off the pitch.
+  const splatGeo = new THREE.SphereGeometry(0.13, 10, 8);
+  const splatMat = Models.mat(0xd0180f);
+  function splatFootballer(e) {
+    e.state = 'flee';
+    e.fleeT = 0;
+    const blob = new THREE.Mesh(splatGeo, splatMat);
+    blob.position.set(0, 0.2, -0.12);
+    blob.scale.set(1.2, 1, 0.45);
+    e.m.head.add(blob);
+    Sound.ouch();
+    if (e.counts) phaseKills++;
+    if (Math.random() < 0.25) dropPickup('banana', e.pos.x, e.pos.z);
   }
 
   function killEnemy(e) {
     e.state = 'dead';
     e.deadT = 0;
-    e.vy = 0;
-    if (!e.isBird) e.pos.y = 0;
-    if (e.type === 'monkey' || e.isBird) Sound.monkeyDie();
+    e.pos.y = 0;
+    if (e.type === 'monkey') Sound.monkeyDie();
     else Sound.beastDie(e.stats.pitch);
     if (e.counts) phaseKills++;
     if (e.type === 'monkey') {
@@ -1040,11 +1100,6 @@
     for (const fm of e.m.flashMats) fm.emissive.setHex(e.flash > 0 ? 0x990000 : 0);
 
     if (e.state === 'dead') {
-      if (e.isBird && e.pos.y > 0) {
-        e.vy -= 20 * dt;
-        e.pos.y = Math.max(0, e.pos.y + e.vy * dt);
-        return;
-      }
       e.deadT += dt;
       e.m.body.rotation.z = Math.min(1, e.deadT / 0.3) * 1.5;
       e.m.body.position.y = Math.min(1, e.deadT / 0.3) * 0.25;
@@ -1053,8 +1108,8 @@
       return;
     }
 
-    if (e.isBird) {
-      updateBird(e, dt);
+    if (e.footy) {
+      updateFootballer(e, dt);
       return;
     }
 
@@ -1111,7 +1166,7 @@
     e.root.rotation.y = e.yaw;
 
     for (const o of enemies) {
-      if (o === e || o.state === 'dead' || o.isBird) continue;
+      if (o === e || o.state === 'dead') continue;
       const ox = e.pos.x - o.pos.x, oz = e.pos.z - o.pos.z, d = Math.hypot(ox, oz);
       const min = 0.5 * (e.scale + o.scale);
       if (d < min && d > 1e-4) {
@@ -1127,50 +1182,81 @@
     animateEnemy(e, speed > 0 || e.state === 'lunge', dist);
   }
 
-  // Birds circle the player at cruise height, dive at their chest, then climb away and circle again.
-  const birdTarget = new V3(), birdStep = new V3();
-  function updateBird(e, dt) {
-    const s = e.stats, m = e.m;
-    e.diveCd -= dt;
-    let speed = s.speed;
-    if (e.state === 'circle') {
-      e.orbitA += dt * (s.speed / s.circle) * 0.6;
-      birdTarget.set(player.pos.x + Math.cos(e.orbitA) * s.circle, s.cruise + Math.sin(e.t * 2) * 0.5, player.pos.z + Math.sin(e.orbitA) * s.circle);
-      const near = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s.circle * 1.6;
-      if (e.diveCd <= 0 && near) {
-        e.state = 'dive';
-        Sound.screech();
+  // Footballers run at the player and slide-tackle; once hit by a tomato they flee and leave.
+  function updateFootballer(e, dt) {
+    const s = FOOTBALLER, m = e.m;
+    const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    let mx = 0, mz = 0, speed = 0;
+    e.cd -= dt;
+    m.body.rotation.x = 0;
+
+    if (e.state === 'flee') {
+      e.fleeT += dt;
+      mx = -dx / dist;
+      mz = -dz / dist;
+      speed = s.speed * 1.3;
+      if (e.fleeT > s.fleeTime) {
+        removeEnemy(e, true);
+        return;
       }
-    } else if (e.state === 'dive') {
-      birdTarget.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
-      speed = s.diveSpeed;
-      const reached = e.pos.distanceTo(birdTarget) < 1.2;
-      if (reached) damagePlayer(s.damage, e.pos);
-      if (reached || e.pos.y < 0.6) {
-        e.state = 'retreat';
-        e.retreatT = 1.0;
+    } else if (e.state === 'tackle') {
+      e.lungeT -= dt;
+      e.pos.addScaledVector(e.lungeDir, s.tackleSpeed * dt);
+      m.body.rotation.x = 1.1;
+      if (!e.bit && dist < 1.6) {
+        e.bit = true;
+        damagePlayer(s.damage, e.pos);
+        Sound.thunk();
       }
-    } else {
-      e.retreatT -= dt;
-      birdTarget.set(e.pos.x * 2 - player.pos.x, s.cruise + 3, e.pos.z * 2 - player.pos.z);
-      if (e.retreatT <= 0) {
-        e.state = 'circle';
-        e.diveCd = rand(...s.diveCd);
+      if (e.lungeT <= 0) {
+        e.state = 'getup';
+        e.getupT = 0.6;
       }
+    } else if (e.state === 'getup') {
+      e.getupT -= dt;
+      m.body.rotation.x = 1.1 * Math.max(0, e.getupT / 0.6);
+      if (e.getupT <= 0) e.state = 'chase';
+    } else if (dist < s.tackleRange && dist > 1.5 && e.cd <= 0) {
+      e.state = 'tackle';
+      e.lungeT = 0.45;
+      e.lungeDir.set(dx / dist, 0, dz / dist);
+      e.bit = false;
+      e.cd = rand(...s.tackleCd);
+    } else if (dist > 1.2) {
+      mx = dx / dist;
+      mz = dz / dist;
+      speed = s.speed;
     }
-    birdStep.subVectors(birdTarget, e.pos);
-    const len = birdStep.length();
-    if (len > 1e-3) {
-      e.pos.addScaledVector(birdStep, Math.min(len, speed * dt) / len);
-      e.yaw = Math.atan2(-birdStep.x, -birdStep.z);
-    }
-    e.pos.y = Math.max(0.4, e.pos.y);
-    clampToLevel(e.pos, 0.5);
+
+    if (speed > 0) {
+      e.pos.x += mx * speed * dt;
+      e.pos.z += mz * speed * dt;
+      e.yaw = Math.atan2(-mx, -mz);
+    } else if (e.state === 'tackle') e.yaw = Math.atan2(-e.lungeDir.x, -e.lungeDir.z);
     e.root.rotation.y = e.yaw;
-    m.body.rotation.x = e.state === 'dive' ? -0.6 : e.state === 'retreat' ? 0.4 : 0;
-    const flap = e.state === 'dive' ? 0.25 : Math.sin(e.t * (e.type === 'canary' ? 16 : 9)) * 0.6;
-    m.wings[0].rotation.z = -flap;
-    m.wings[1].rotation.z = flap;
+
+    const p = e.t * 12, a = speed > 0 ? 0.9 : 0;
+    m.legs[0].rotation.x = Math.sin(p) * a;
+    m.legs[1].rotation.x = -Math.sin(p) * a;
+    if (e.state === 'flee') {
+      m.arms[0].rotation.set(2.7, 0, 0.5);
+      m.arms[1].rotation.set(2.7, 0, -0.5);
+    } else {
+      m.arms[0].rotation.set(-Math.sin(p) * a, 0, 0);
+      m.arms[1].rotation.set(Math.sin(p) * a, 0, 0);
+    }
+
+    for (const o of enemies) {
+      if (o === e || o.state === 'dead') continue;
+      const ox = e.pos.x - o.pos.x, oz = e.pos.z - o.pos.z, d = Math.hypot(ox, oz);
+      if (d < 0.9 && d > 1e-4) {
+        e.pos.x += (ox / d) * (0.9 - d) * 0.5;
+        e.pos.z += (oz / d) * (0.9 - d) * 0.5;
+      }
+    }
+    collideTrees(e.pos, 0.4);
+    clampToLevel(e.pos, 0.4);
     updateSpheres(e);
   }
 
@@ -1277,7 +1363,13 @@
     return w === 'bow' || player.ammo[w] > 0;
   }
 
+  // The derby waves only allow tomatoes.
+  function weaponLocked() {
+    return !!(WAVES[phase] && WAVES[phase].weapon);
+  }
+
   function nextWeapon() {
+    if (weaponLocked()) return;
     const i = WEAPON_ORDER.indexOf(player.weapon);
     for (let k = 1; k < WEAPON_ORDER.length; k++) {
       const w = WEAPON_ORDER[(i + k) % WEAPON_ORDER.length];
@@ -1897,7 +1989,7 @@
 
   // ---------- Phases ----------
   let gameState = 'menu'; // menu | play | paused | dead | finale | won
-  // monkeys | wolves | toArena | kong | cats | toLair | trex | canaries | eagles | toFinal | dragons | escape
+  // monkeys | wolves | toArena | kong | cats | toLair | trex | fb | bjk | toFinal | dragons | escape
   let phase = 'monkeys';
   let phaseKills = 0, phaseSpawned = 0, spawnTimer = 0, minionTimer = 0, bossDeadT = 0, rpgHintT = 0, runTime = 0, runFrom = 0;
 
@@ -1911,9 +2003,10 @@
     phaseKills = 0;
     phaseSpawned = 0;
     spawnTimer = 1.5;
-    // Hand the player the right weapon: bow for animal waves, RPG-7 for boss fights.
-    if (WAVES[p]) setWeapon('bow');
+    // Hand the player the right weapon: the wave's weapon (bow by default), RPG-7 for boss fights.
+    if (WAVES[p]) setWeapon(WAVES[p].weapon || 'bow');
     else if (BOSS_FIGHTS[p] && weaponReady('rpg')) setWeapon('rpg');
+    else if (player.weapon === 'tomato') setWeapon('bow');
     switch (p) {
       case 'monkeys':
         toast('Vahşi maymunlar!', 'Hepsini okla vur — yol ancak o zaman açılır', 3.5);
@@ -1953,15 +2046,17 @@
         minionTimer = BOSS_FIGHTS.trex.interval;
         toast('T-REX!', 'Derisine ok ve mermi işlemez — RPG-7 ile vur! Ağaçlarda roket var', 4);
         break;
-      case 'canaries':
+      case 'fb':
         barriers[4].openUp();
         reachCheckpoint(5);
-        toast('Kanaryalar saldırıyor!', 'Sarı-lacivert kanaryalar havadan dalıyor — hepsini vur', 3.5);
+        Sound.whistle();
+        toast('Fenerbahçe futbolcuları geliyor!', 'Domates at — yiyen sahadan kaçar!', 3.5);
         break;
-      case 'eagles':
+      case 'bjk':
         barriers[5].openUp();
         reachCheckpoint(6);
-        toast('Kara kartallar!', 'Siyah-beyaz kartallar yüksekten pike yapıyor — hepsini vur', 3.5);
+        Sound.whistle();
+        toast('Beşiktaş futbolcuları geliyor!', 'Domatesleri hazırla!', 3.5);
         break;
       case 'toFinal':
         barriers[6].openUp();
@@ -1987,7 +2082,7 @@
     let z = player.pos.z - rand(14, 38);
     if (z < zMin) z = player.pos.z + rand(12, 22);
     z = clamp(z, zMin, zMax);
-    const x = type === 'monkey' || BIRDS[type] ? rand(-12, 12) : (Math.random() < 0.5 ? -1 : 1) * (C1.x1 - 1);
+    const x = type === 'monkey' || isFootballer(type) ? rand(-12, 12) : (Math.random() < 0.5 ? -1 : 1) * (C1.x1 - 1);
     spawnEnemy(type, x, z, type === 'monkey', true);
     phaseSpawned++;
   }
@@ -2061,8 +2156,8 @@
       case 'cats': return `🦁 Aslan ve kaplanlar: ${phaseKills} / ${WAVES.cats.total}`;
       case 'toLair': return "🦖 T-Rex'in yuvasına ilerle";
       case 'trex': return bossObjective("🦖 T-Rex'i RPG-7 ile vur!");
-      case 'canaries': return `🐤 Kanaryalar: ${phaseKills} / ${WAVES.canaries.total}`;
-      case 'eagles': return `🦅 Kara kartallar: ${phaseKills} / ${WAVES.eagles.total}`;
+      case 'fb': return `🍅 Kaçan Fenerbahçeliler: ${phaseKills} / ${WAVES.fb.total}`;
+      case 'bjk': return `🍅 Kaçan Beşiktaşlılar: ${phaseKills} / ${WAVES.bjk.total}`;
       case 'toFinal': return '⚔️ Son meydana ilerle';
       case 'dragons': return bossObjective('🐉 İki ejderhayı da RPG-7 ile vur!');
       default: return '🚪 Kapıdan çık!';
@@ -2089,6 +2184,7 @@
     const w = player.weapon;
     if (w === 'rpg') return `🚀 RPG-7 × ${player.rockets}`;
     if (GUNS[w]) return `🔫 ${GUNS[w].name} × ${player.ammo[w]}`;
+    if (w === 'tomato') return '🍅 Domates × ∞';
     return '🏹 Yay × ∞';
   }
 
@@ -2099,7 +2195,7 @@
     $('objective').textContent = objectiveText();
     const fills = $('bosses').querySelectorAll('.fill');
     phaseBosses().forEach((b, i) => { if (fills[i]) fills[i].style.width = `${(b.hp / b.maxHp) * 100}%`; });
-    $('weapon').innerHTML = weaponLabel() + '<small>[Tab] sonraki silah</small>';
+    $('weapon').innerHTML = weaponLabel() + `<small>${weaponLocked() ? 'bu maçta sadece domates' : '[Tab] sonraki silah'}</small>`;
     if (toastT > 0) {
       toastT -= dt;
       if (toastT <= 0) $('toast').classList.remove('show');
@@ -2138,6 +2234,7 @@
     clearList(rockets);
     clearList(rocks);
     clearList(fireballs);
+    clearList(tomatoes);
     clearList(pickups);
     for (const p of particles) {
       scene.remove(p.m);
@@ -2302,6 +2399,7 @@
     updateRockets(dt);
     updateRocks(dt);
     updateFireballs(dt);
+    updateTomatoes(dt);
     updatePickups(dt);
     if (hanging) {
       hanging.t += dt;
@@ -2370,7 +2468,7 @@
       const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
       if (e.code === 'KeyE') takeHanging();
       else if (e.code === 'Tab' && !e.repeat) nextWeapon();
-      else if (digit >= 0) setWeapon(WEAPON_ORDER[digit]);
+      else if (digit >= 0 && !weaponLocked()) setWeapon(WEAPON_ORDER[digit]);
       else if (e.code === 'KeyP') {
         document.exitPointerLock();
         pause();

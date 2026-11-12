@@ -227,16 +227,19 @@ const Models = (() => {
       ak: group(root, 0.12, 1.38, -0.3),
       pistol: group(root, 0, 1.43, -0.6),
       rpg: group(root, 0.2, 1.62, -0.05),
+      tomato: group(root, 0.3, 1.88, 0.33),
     };
     holders.bow.add(bowModel);
     holders.ak.add(ak47());
     holders.pistol.add(revolver());
     holders.rpg.add(rpg());
+    holders.tomato.add(tomato());
     const ARM_POSES = {
       bow: [[Math.PI / 2, 0, 0], [1.5, 0, -0.9]],
       ak: [[1.45, 0, -0.5], [1.2, 0, 0.3]],
       pistol: [[1.5, 0, -0.45], [1.5, 0, 0.45]],
       rpg: [[1.35, 0, -0.35], [1.1, 0, 0.25]],
+      tomato: [[1.2, 0, -0.2], [-2.5, 0, 0.15]],
     };
 
     const rig = { root, legs, armL, armR, head, torso, holders, bowHolder: holders.bow, bow: bowModel, rpgHolder: holders.rpg };
@@ -480,39 +483,71 @@ const Models = (() => {
     return { root, body, head, jaw, arms, legs, tail, flashMats: [skin] };
   }
 
-  // ---------- Giant birds: Fenerbahçe canary and Beşiktaş black eagle; centered on the origin ----------
-  const BIRDS = {
-    canary: { body: 0xf5d300, wing: 0xf5d300, tip: 0x13286e, head: 0xf5d300, tail: 0x13286e, beak: 0xff9a1a, span: 1.0, scale: 1.1 },
-    eagle: { body: 0x161616, wing: 0x1c1c1c, tip: 0xf2f2f2, head: 0xf2f2f2, tail: 0xf2f2f2, beak: 0xf5c000, span: 1.7, scale: 1.4 },
+  // ---------- Rival footballers: unnamed players in striped club kits ----------
+  const KITS = {
+    fb: { stripes: ['#f5d300', '#13286e'], shorts: 0xffffff, socks: 0xf5d300, number: '#13286e' },
+    bjk: { stripes: ['#f4f4f4', '#141414'], shorts: 0x141414, socks: 0x141414, number: '#d01010' },
   };
+  const SKIN_TONES = [0xe0b48f, 0xc68e64, 0x8d5a3b, 0x4a2e1f];
+  const HAIR = [0x1a1410, 0x3b2414, 0x6b4a22, 0xc9a24a];
 
-  function bird(kind) {
-    const o = BIRDS[kind];
+  function stripedShirt(kit, number) {
+    return textTexture(128, 128, (g, w, h) => {
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        g.fillStyle = kit.stripes[i % 2];
+        g.fillRect((i * w) / n, 0, w / n + 1, h);
+      }
+      if (number) {
+        g.font = 'bold 64px Arial Black, Arial';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.lineWidth = 6;
+        g.strokeStyle = '#ffffff';
+        g.strokeText(number, w / 2, h / 2 + 4);
+        g.fillStyle = kit.number;
+        g.fillText(number, w / 2, h / 2 + 4);
+      }
+    });
+  }
+
+  function footballer(team) {
+    const kit = KITS[team];
     const root = new THREE.Group();
-    const bodyM = mat(o.body);
+    const skin = mat(SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)]);
+    const shirt = mat(0xffffff, { map: stripedShirt(kit) });
+    const back = mat(0xffffff, { map: stripedShirt(kit, String(2 + Math.floor(Math.random() * 98))) });
     const body = group(root);
-    add(body, sphere(0.35, 12, 10), bodyM).scale.set(0.9, 0.85, 1.4);
-    const head = group(body, 0, 0.18, -0.45);
-    add(head, sphere(0.22, 12, 10), mat(o.head));
-    const beak = new THREE.ConeGeometry(0.08, 0.26, 6);
-    beak.rotateX(-Math.PI / 2);
-    add(head, beak, mat(o.beak), 0, -0.03, -0.27);
-    add(head, sphere(0.04, 6, 4), glow(0x111111), -0.12, 0.06, -0.12);
-    add(head, sphere(0.04, 6, 4), glow(0x111111), 0.12, 0.06, -0.12);
-    const tailGeo = new THREE.ConeGeometry(0.22, 0.5, 4);
-    tailGeo.rotateX(Math.PI / 2);
-    add(body, tailGeo, mat(o.tail), 0, 0.02, 0.6).scale.set(1, 0.3, 1);
-    const wingM = mat(o.wing, { side: THREE.DoubleSide }), tipM = mat(o.tip, { side: THREE.DoubleSide });
-    const wings = [];
+    const legs = [];
     for (const s of [-1, 1]) {
-      const pivot = group(body, 0.2 * s, 0.08, -0.05);
-      const inner = add(pivot, box(o.span * 0.6, 0.04, 0.45), wingM, s * o.span * 0.3, 0, 0);
-      inner.castShadow = true;
-      add(pivot, box(o.span * 0.45, 0.04, 0.35), tipM, s * o.span * 0.82, 0, 0.05);
-      wings.push(pivot);
+      const leg = group(body, 0.11 * s, 0.9, 0);
+      add(leg, box(0.19, 0.3, 0.21), mat(kit.shorts), 0, -0.13, 0);
+      add(leg, box(0.12, 0.4, 0.13), skin, 0, -0.47, 0);
+      add(leg, box(0.13, 0.18, 0.14), mat(kit.socks), 0, -0.73, 0);
+      add(leg, box(0.14, 0.08, 0.28), mat(0x111111), 0, -0.86, -0.05);
+      legs.push(leg);
     }
-    root.scale.setScalar(o.scale);
-    return { root, body, head, wings, scale: o.scale, flashMats: [bodyM] };
+    // Front, sides and top use the plain stripes; the back face carries the number.
+    add(body, box(0.44, 0.62, 0.27), [shirt, shirt, shirt, shirt, back, shirt], 0, 1.2, 0);
+    const head = group(body, 0, 1.52, 0);
+    add(head, new THREE.CylinderGeometry(0.06, 0.07, 0.12, 8), skin, 0, 0.04, 0);
+    add(head, sphere(0.135, 14, 10), skin, 0, 0.2, 0);
+    add(head, new THREE.SphereGeometry(0.142, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.4), mat(HAIR[Math.floor(Math.random() * HAIR.length)]), 0, 0.21, 0.01);
+    const arms = [];
+    for (const s of [-1, 1]) {
+      const arm = group(body, 0.3 * s, 1.44, 0);
+      add(arm, box(0.12, 0.2, 0.13), shirt, 0, -0.08, 0);
+      add(arm, box(0.09, 0.4, 0.1), skin, 0, -0.36, 0);
+      arms.push(arm);
+    }
+    return { root, body, head, legs, arms, scale: 1, flashMats: [skin] };
+  }
+
+  function tomato() {
+    const g = new THREE.Group();
+    add(g, sphere(0.09, 12, 10), mat(0xe0201a)).scale.set(1, 0.85, 1);
+    add(g, new THREE.ConeGeometry(0.04, 0.05, 5), mat(0x2f7d1f), 0, 0.085, 0);
+    return g;
   }
 
   // ---------- King Kong: built ~1.94 m tall, scaled up by the caller ----------
@@ -586,5 +621,5 @@ const Models = (() => {
     return g;
   }
 
-  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, bird, dragon, trex, gorilla, banana, medkit, rocketBag, ammoBox, textTexture, mat, add, group };
+  return { ARROW_LEN, GORILLA_HEIGHT, arrow, bow, rpg, rocket, player, monkey, beast, footballer, tomato, dragon, trex, gorilla, banana, medkit, rocketBag, ammoBox, textTexture, mat, add, group };
 })();
