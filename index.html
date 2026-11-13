@@ -20,6 +20,18 @@
     <div id="hurt"></div>
   </div>
 
+  <div id="touch-controls">
+    <div id="touch-pad" role="group" aria-label="Koş">
+      <span data-arrow="KeyW">▲</span><span data-arrow="KeyS">▼</span><span data-arrow="KeyA">◀</span><span data-arrow="KeyD">▶</span>
+    </div>
+    <div id="touch-jump" data-key="Space" role="button" aria-label="Zıpla">⬆️</div>
+    <div id="touch-fire" data-key="KeyF" role="button" aria-label="Ateş et, basılı tut seri atış">🎯</div>
+    <div id="touch-run" data-key="KeyQ" role="button" aria-label="Hızlı koşmayı aç, kapat">💨</div>
+    <div id="touch-take" data-key="KeyE" role="button" aria-label="Al">✋</div>
+    <div id="touch-weapon" data-key="Tab" role="button" aria-label="Sonraki silah">🔄</div>
+    <div id="touch-pause" data-key="KeyP" role="button" aria-label="Durdur">⏸️</div>
+  </div>
+
   <div id="fade"></div>
 
   <div id="menu" class="overlay">
@@ -44,15 +56,18 @@
           <b>Kontroller</b>
           <table>
             <tr><td>W A S D</td><td>Koş</td></tr>
-            <tr><td>Shift</td><td>Hızlı koş</td></tr>
+            <tr><td>Q</td><td>Hızlı koşmayı aç, kapat</td></tr>
+            <tr><td>Shift</td><td>Basılı tutunca hızlı koş</td></tr>
             <tr><td>Boşluk</td><td>Zıpla</td></tr>
             <tr><td>Fare</td><td>Nişan al</td></tr>
-            <tr><td>Sol tık</td><td>Ateş et (basılı tut: seri atış)</td></tr>
+            <tr><td>Sol tık / F</td><td>Ateş et (basılı tut: seri atış)</td></tr>
             <tr><td>E</td><td>Al (RPG-7, roket)</td></tr>
             <tr><td>Tab</td><td>Sonraki silah (mermisi olan)</td></tr>
             <tr><td>1 2 3 4</td><td>Yay · AK-47 · Smith &amp; Wesson · RPG-7</td></tr>
-            <tr><td>Esc</td><td>Duraklat</td></tr>
+            <tr><td>P / Esc</td><td>Duraklat</td></tr>
+            <tr><td>Home</td><td>Ekran düğmelerini aç, kapat</td></tr>
           </table>
+          <p class="touch-only">Soldaki oklarla koş, parmağını ekranda kaydırarak nişan al. ⬆️ zıplar, 🎯 ateş eder (basılı tut: seri atış), 💨 hızlı koşmayı açar, ✋ RPG-7'yi ve roketleri alır, 🔄 silah değiştirir, ⏸️ durdurur.</p>
         </div>
         <div class="side">
           <b>Ayarlar</b>
@@ -102,6 +117,7 @@
   <script src="js/sound.js"></script>
   <script src="js/models.js"></script>
   <script src="js/stadium.js"></script>
+  <script src="js/touch.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

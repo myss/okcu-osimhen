@@ -1,4 +1,4 @@
-* { box-sizing: border-box; }
+* { box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 
 html, body {
   margin: 0;
@@ -81,6 +81,9 @@ html, body {
   background: rgba(8, 16, 8, .55); padding: 16px; overflow-y: auto;
 }
 .overlay.clear { background: transparent; align-items: flex-end; padding-bottom: 6vh; }
+/* Auto margins center the panel, yet let a panel taller than the screen scroll from its top. */
+.overlay > .panel { margin: auto; }
+.overlay.clear > .panel { margin-bottom: 0; }
 
 .panel {
   background: rgba(20, 24, 18, .88); border: 2px solid rgba(247,181,0,.6); border-radius: 18px;
@@ -114,3 +117,54 @@ button.secondary { background: rgba(255,255,255,.14); color: #fff; }
 .side label { display: block; margin: 8px 0; }
 .side .slider input { width: 100%; }
 #stats { margin-top: 12px; font-size: 15px; opacity: .9; line-height: 1.6; }
+
+/* ---------- On-screen buttons (touch.js), as in Kaplan Macerası ---------- */
+#touch-controls { display: none; }
+.touch-only { display: none; }
+body.touch #touch-controls { display: block; }
+body.touch #hud.hidden ~ #touch-controls { display: none; }
+body.touch .touch-only { display: block; }
+body.touch .howto table, body.touch .side .slider { display: none; }
+body.touch #game { touch-action: none; }
+body.touch #hp { left: 12px; top: 10px; width: 150px; }
+body.touch .bar { height: 12px; }
+body.touch #objective { top: 8px; font-size: 14px; padding: 4px 12px; }
+body.touch #bosses { top: 44px; width: min(360px, 50vw); font-size: 12px; }
+body.touch #weapon { right: 66px; bottom: auto; top: 8px; font-size: 15px; padding: 4px 10px; }
+body.touch #weapon small { font-size: 11px; }
+body.touch #toast { font-size: 24px; top: 26%; }
+body.touch #toast small { font-size: 14px; }
+body.touch #prompt { top: auto; bottom: 12px; width: max-content; max-width: calc(100vw - 440px); padding: 4px 12px; border-radius: 12px; font-size: 14px; }
+body.touch .panel { padding: 16px 18px; }
+body.touch h1 { font-size: 40px; }
+body.touch h2 { font-size: 20px; }
+#touch-controls > * { position: fixed; display: flex; align-items: center; justify-content: center; border: 3px solid #fffc; border-radius: 50%; background: #0005; color: #fff; touch-action: none; cursor: pointer; }
+#touch-controls .pressed { background: #2e9e4fcc; }
+#touch-controls .on { background: #e8710acc; }
+#touch-pad { left: 20px; bottom: 20px; width: 170px; height: 170px; }
+#touch-pad span { position: absolute; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 30px; pointer-events: none; }
+#touch-pad [data-arrow="KeyW"] { top: 2px; left: 54px; }
+#touch-pad [data-arrow="KeyS"] { bottom: 2px; left: 54px; }
+#touch-pad [data-arrow="KeyA"] { left: 2px; top: 54px; }
+#touch-pad [data-arrow="KeyD"] { right: 2px; top: 54px; }
+#touch-jump { right: 20px; bottom: 20px; width: 92px; height: 92px; font-size: 38px; }
+#touch-fire { right: 124px; bottom: 28px; width: 78px; height: 78px; font-size: 34px; }
+#touch-run { right: 44px; bottom: 124px; width: 68px; height: 68px; font-size: 30px; }
+#touch-take { right: 128px; bottom: 118px; width: 68px; height: 68px; font-size: 30px; }
+#touch-weapon { right: 212px; bottom: 34px; width: 60px; height: 60px; font-size: 26px; }
+#touch-pause { right: 12px; top: 8px; width: 44px; height: 44px; font-size: 20px; }
+
+/* A phone held upright: the buttons stand in two columns beside the pad, and the hints move up. */
+@media (orientation: portrait) {
+  body.touch #weapon { top: 60px; right: 12px; }
+  body.touch #objective { top: 112px; max-width: calc(100vw - 24px); white-space: normal; text-align: center; }
+  body.touch #bosses { top: 156px; width: 80vw; }
+  body.touch #prompt { bottom: 300px; max-width: 80vw; }
+  body.touch #toast { top: 34%; }
+  #touch-pad { left: 12px; }
+  #touch-jump { right: 16px; bottom: 20px; }
+  #touch-fire { right: 22px; bottom: 124px; }
+  #touch-weapon { right: 30px; bottom: 214px; }
+  #touch-run { right: 112px; bottom: 28px; }
+  #touch-take { right: 112px; bottom: 112px; }
+}

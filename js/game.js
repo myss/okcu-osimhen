@@ -1,3 +1,15 @@
+// Input shared with touch.js, which loads first and presses the same keys from on-screen buttons.
+// Keys are known by where they sit (e.code), as in Kaplan Macerası. The rest of the game lives in
+// the function below, so these sit outside it where touch.js can reach them.
+const held = new Set();
+const pressed = new Set();
+function pressKey(code) {
+  if (!held.has(code)) pressed.add(code);
+  held.add(code);
+}
+// How far the mouse or a finger has turned the camera since the last frame, in radians.
+const look = { yaw: 0, pitch: 0 };
+
 (function () {
   'use strict';
 
@@ -103,7 +115,9 @@
   const canvas = renderer.domElement;
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-  const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 700);
+  // An upright phone gets a wider view, or the player would fill half the narrow screen.
+  const cameraFov = () => (innerWidth < innerHeight ? 80 : 62);
+  const camera = new THREE.PerspectiveCamera(cameraFov(), innerWidth / innerHeight, 0.1, 700);
   camera.rotation.order = 'YXZ';
 
   const scene = new THREE.Scene();
@@ -570,8 +584,10 @@
   scene.add(player.rig.root);
 
   let yaw = 0, pitch = -0.1, shakeAmt = 0, hurtT = 0;
-  const keys = {};
   let mouseDown = false;
+  // A tap on Q switches running on or off, because an on-screen keyboard cannot hold two keys at
+  // once. Holding Shift runs too.
+  let runSwitchedOn = false;
 
   function damagePlayer(d, from) {
     if (gameState !== 'play' || player.invuln > 0) return;
@@ -632,17 +648,18 @@
   }
 
   function updatePlayer(dt) {
-    const fwd = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-    const side = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    const fwd = (held.has('KeyW') ? 1 : 0) - (held.has('KeyS') ? 1 : 0);
+    const side = (held.has('KeyD') ? 1 : 0) - (held.has('KeyA') ? 1 : 0);
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     let mx = -sy * fwd + cy * side, mz = -cy * fwd - sy * side;
     const ml = Math.hypot(mx, mz);
     if (ml > 0) { mx /= ml; mz /= ml; }
-    const speed = keys.ShiftLeft || keys.ShiftRight ? PLAYER.sprint : PLAYER.speed;
+    const running = runSwitchedOn || held.has('ShiftLeft') || held.has('ShiftRight');
+    const speed = running ? PLAYER.sprint : PLAYER.speed;
     const k = Math.min(1, dt * (player.onGround ? 12 : 3));
     player.vel.x += (mx * speed - player.vel.x) * k;
     player.vel.z += (mz * speed - player.vel.z) * k;
-    if (keys.Space && player.onGround) {
+    if (held.has('Space') && player.onGround) {
       player.vel.y = PLAYER.jump;
       player.onGround = false;
     }
@@ -669,12 +686,25 @@
     player.cooldown -= dt;
     player.invuln -= dt;
     if (player.weapon === 'bow') rig.bow.userData.setDraw(clamp(1 - player.cooldown / ARROW.cooldown, 0, 1));
-    if (mouseDown && player.cooldown <= 0) fire();
+    // A tap shorter than a frame still fires once; holding fires on and on.
+    if ((mouseDown || held.has('KeyF') || pressed.has('KeyF')) && player.cooldown <= 0) fire();
 
     const promptEl = $('prompt');
     const text = promptText();
     promptEl.classList.toggle('show', !!text);
     if (text) promptEl.textContent = text;
+  }
+
+  // What to call a key in a hint: its on-screen button when those are showing.
+  const KEY_NAMES = { KeyE: ['E', '✋'], Tab: ['[Tab]', '🔄'], KeyQ: ['Q', '💨'] };
+  function keyName(code) {
+    return KEY_NAMES[code][touchControls ? 1 : 0];
+  }
+
+  function switchRunning() {
+    runSwitchedOn = !runSwitchedOn;
+    $('touch-run').classList.toggle('on', runSwitchedOn);
+    toast(runSwitchedOn ? 'Hızlı koşma açık 💨' : 'Hızlı koşma kapalı', runSwitchedOn ? `${keyName('KeyQ')} ile kapatırsın` : '', 1.5);
   }
 
   function waveLeft(name) {
@@ -694,7 +724,7 @@
   // Explains what the player can do here: take the hanging item, or why a log pile / the gate is still closed.
   function promptText() {
     if (hanging && Math.hypot(player.pos.x - hanging.pos.x, player.pos.z - hanging.pos.z) < 2.8) {
-      return hanging.kind === 'rpg' ? "E — RPG-7'yi al" : 'E — Roketleri al';
+      return `${keyName('KeyE')} — ${hanging.kind === 'rpg' ? "RPG-7'yi al" : 'Roketleri al'}`;
     }
     const i = barriers.findIndex((b) => !b.open);
     if (i >= 0 && player.pos.z < barriers[i].z + 6) return BARRIER_HINTS[i]();
@@ -775,7 +805,7 @@
 
   function noticeBossImmune(boss, what) {
     if (bossImmuneNoticeT > 0) return;
-    toast(`${what} ${boss.title} işlemiyor!`, player.hasRpg ? 'RPG-7 kullan — [Tab] ile geç' : "Ağaçlarda asılı RPG-7'yi bul!", 2.2);
+    toast(`${what} ${boss.title} işlemiyor!`, player.hasRpg ? `RPG-7 kullan — ${keyName('Tab')} ile geç` : "Ağaçlarda asılı RPG-7'yi bul!", 2.2);
     bossImmuneNoticeT = 8;
   }
 
@@ -1365,7 +1395,7 @@
     if (hanging.kind === 'rpg') {
       player.hasRpg = true;
       player.rockets = Math.max(player.rockets, ROCKET.startAmmo);
-      toast('RPG-7 senin!', 'Şimdi vur! Silah değiştirmek için [Tab]', 3);
+      toast('RPG-7 senin!', `Şimdi vur! Silah değiştirmek için ${keyName('Tab')}`, 3);
     } else {
       player.rockets += ROCKET.bagAmmo;
       toast(`+${ROCKET.bagAmmo} roket`, '', 1.6);
@@ -2213,7 +2243,7 @@
     $('objective').textContent = objectiveText();
     const fills = $('bosses').querySelectorAll('.fill');
     phaseBosses().forEach((b, i) => { if (fills[i]) fills[i].style.width = `${(b.hp / b.maxHp) * 100}%`; });
-    $('weapon').innerHTML = weaponLabel() + `<small>${weaponLocked() ? 'bu maçta sadece domates' : '[Tab] sonraki silah'}</small>`;
+    $('weapon').innerHTML = weaponLabel() + `<small>${weaponLocked() ? 'bu maçta sadece domates' : `${keyName('Tab')} sonraki silah`}</small>`;
     if (toastT > 0) {
       toastT -= dt;
       if (toastT <= 0) $('toast').classList.remove('show');
@@ -2281,6 +2311,8 @@
     player.pos.set(0, 0, cp.z);
     yaw = 0;
     pitch = -0.1;
+    runSwitchedOn = false;
+    $('touch-run').classList.remove('on');
     runTime = 0;
     runFrom = checkpoint;
     setPhase(cp.phase);
@@ -2304,7 +2336,7 @@
     if (gameState !== 'play') return;
     gameState = 'paused';
     mouseDown = false;
-    for (const k in keys) keys[k] = false;
+    held.clear();
     $('pause').classList.remove('hidden');
   }
 
@@ -2407,8 +2439,25 @@
   }
 
   // ---------- Main loop ----------
+  // Keys that act once per press, from the keyboard or the on-screen buttons.
+  function handlePressedKeys() {
+    const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].findIndex((code) => pressed.has(code));
+    if (pressed.has('KeyE')) takeHanging();
+    if (pressed.has('Tab')) nextWeapon();
+    if (digit >= 0 && !weaponLocked()) setWeapon(WEAPON_ORDER[digit]);
+    if (pressed.has('KeyQ')) switchRunning();
+    if (pressed.has('KeyP')) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      pause();
+    }
+  }
+
   function updatePlay(dt) {
     runTime += dt;
+    handlePressedKeys();
+    if (gameState !== 'play') return;
+    yaw += look.yaw;
+    pitch = clamp(pitch + look.pitch, -1.0, 0.75);
     updatePlayer(dt);
     updatePhase(dt);
     for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i]) updateEnemy(enemies[i], dt);
@@ -2433,7 +2482,8 @@
   function frame() {
     requestAnimationFrame(frame);
     const dt = Math.min(clock.getDelta(), 0.05);
-    if (gameState === 'play') updatePlay(dt);
+    if (gameState === 'paused' && pressed.has('KeyP')) resume();
+    else if (gameState === 'play') updatePlay(dt);
     else if (gameState === 'menu') updateMenu(dt);
     else if (gameState === 'finale' || gameState === 'won') updateFinale(dt);
     if (gameState !== 'paused') {
@@ -2444,18 +2494,22 @@
     sun.position.set(player.pos.x + 25, 45, player.pos.z + 15);
     sun.target.position.set(player.pos.x, 0, player.pos.z - 10);
     renderer.render(stadiumActive ? stadium.scene : scene, camera);
+    pressed.clear();
+    look.yaw = look.pitch = 0;
   }
 
   // ---------- Input ----------
   function lockPointer() {
+    if (touchControls) return;
     try {
       const p = canvas.requestPointerLock();
       if (p && p.catch) p.catch(() => {});
     } catch (e) { /* pointer lock unavailable */ }
   }
 
+  // Losing the mouse pauses the game; with on-screen buttons there is no locked mouse to lose.
   document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement !== canvas && gameState === 'play') pause();
+    if (document.pointerLockElement !== canvas && gameState === 'play' && !touchControls) pause();
   });
 
   canvas.addEventListener('mousedown', (e) => {
@@ -2471,39 +2525,33 @@
     // Without pointer lock (e.g. an embedded preview) the mouse still steers while it moves over the page.
     if (gameState !== 'play') return;
     const s = 0.0022 * save.settings.sens;
-    yaw -= e.movementX * s;
-    pitch = clamp(pitch - e.movementY * s, -1.0, 0.75);
+    look.yaw -= e.movementX * s;
+    look.pitch -= e.movementY * s;
   });
 
   window.addEventListener('wheel', () => {
     if (gameState === 'play') nextWeapon();
   });
 
+  const GAME_KEYS = ['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
   window.addEventListener('keydown', (e) => {
-    keys[e.code] = true;
-    if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault();
-    if (gameState === 'play') {
-      const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
-      if (e.code === 'KeyE') takeHanging();
-      else if (e.code === 'Tab' && !e.repeat) nextWeapon();
-      else if (digit >= 0 && !weaponLocked()) setWeapon(WEAPON_ORDER[digit]);
-      else if (e.code === 'KeyP') {
-        document.exitPointerLock();
-        pause();
-      }
-    } else if (e.code === 'Enter') {
+    if (GAME_KEYS.includes(e.code)) e.preventDefault();
+    if (!e.repeat) pressed.add(e.code);
+    held.add(e.code);
+    if (gameState !== 'play' && e.code === 'Enter') {
       const overlay = ['menu', 'pause', 'dead', 'win'].map($).find((el) => !el.classList.contains('hidden'));
       if (overlay) overlay.querySelector('button:not(.hidden)').click();
     }
   });
-  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  window.addEventListener('keyup', (e) => held.delete(e.code));
   window.addEventListener('blur', () => {
-    for (const k in keys) keys[k] = false;
+    held.clear();
     mouseDown = false;
   });
 
   window.addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
+    camera.fov = cameraFov();
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
   });
@@ -2528,6 +2576,7 @@
   onButton('btn-again', () => startRun(0));
   onButton('btn-win-menu', showMenu);
   $('opt-sound').addEventListener('change', (e) => {
+    e.target.blur();
     save.settings.sound = e.target.checked;
     Sound.setEnabled(save.settings.sound);
     writeSave();
@@ -2536,6 +2585,7 @@
     save.settings.sens = parseFloat(e.target.value);
     writeSave();
   });
+  $('opt-sens').addEventListener('change', (e) => e.target.blur());
 
   // ---------- Boot ----------
   loadSave();
