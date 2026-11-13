@@ -20,7 +20,7 @@ const look = { yaw: 0, pitch: 0 };
   const smooth = (k) => k * k * (3 - 2 * k);
 
   // ---------- Tuning ----------
-  const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 200 };
+  const PLAYER = { speed: 6, sprint: 9.5, jump: 8, gravity: 18, radius: 0.4, maxHp: 200, turnSpeed: 2.8 };
   const HEAL = { banana: 40, medkit: 70 };
   const ARROW = { speed: 75, gravity: 6, cooldown: 0.45, damage: 1, bossDamage: 0.5 };
   // Hitscan firearms; bullets barely hurt bosses, like arrows.
@@ -108,16 +108,13 @@ const look = { yaw: 0, pitch: 0 };
   // ---------- Renderer, camera, forest scene ----------
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   $('game').appendChild(renderer.domElement);
   const canvas = renderer.domElement;
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-  // An upright phone gets a wider view, or the player would fill half the narrow screen.
-  const cameraFov = () => (innerWidth < innerHeight ? 80 : 62);
-  const camera = new THREE.PerspectiveCamera(cameraFov(), innerWidth / innerHeight, 0.1, 700);
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 700);
   camera.rotation.order = 'YXZ';
 
   const scene = new THREE.Scene();
@@ -649,7 +646,13 @@ const look = { yaw: 0, pitch: 0 };
 
   function updatePlayer(dt) {
     const fwd = (held.has('KeyW') ? 1 : 0) - (held.has('KeyS') ? 1 : 0);
-    const side = (held.has('KeyD') ? 1 : 0) - (held.has('KeyA') ? 1 : 0);
+    let side = (held.has('KeyD') ? 1 : 0) - (held.has('KeyA') ? 1 : 0);
+    // With on-screen buttons left and right turn the player, as in Bebek Ejderha, since no mouse
+    // turns them; a finger dragged on the picture still fine-tunes the aim. Keys strafe.
+    if (touchControls) {
+      yaw -= side * PLAYER.turnSpeed * dt;
+      side = 0;
+    }
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     let mx = -sy * fwd + cy * side, mz = -cy * fwd - sy * side;
     const ml = Math.hypot(mx, mz);
@@ -2478,6 +2481,20 @@ const look = { yaw: 0, pitch: 0 };
     updateHud(dt);
   }
 
+  // The canvas fills the screen through CSS, and every frame the drawing follows its size, as in
+  // Kaplan Macerası: a phone that starts sideways may report its first size before it settles.
+  // An upright phone gets a wider view, or the player would fill half the narrow screen.
+  function fitCanvas() {
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    const size = renderer.getSize(fitSize);
+    if (size.x === width && size.y === height) return;
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.fov = width < height ? 80 : 62;
+    camera.updateProjectionMatrix();
+  }
+  const fitSize = new THREE.Vector2();
+
   const clock = new THREE.Clock();
   function frame() {
     requestAnimationFrame(frame);
@@ -2493,6 +2510,7 @@ const look = { yaw: 0, pitch: 0 };
     }
     sun.position.set(player.pos.x + 25, 45, player.pos.z + 15);
     sun.target.position.set(player.pos.x, 0, player.pos.z - 10);
+    fitCanvas();
     renderer.render(stadiumActive ? stadium.scene : scene, camera);
     pressed.clear();
     look.yaw = look.pitch = 0;
@@ -2547,13 +2565,6 @@ const look = { yaw: 0, pitch: 0 };
   window.addEventListener('blur', () => {
     held.clear();
     mouseDown = false;
-  });
-
-  window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.fov = cameraFov();
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
   });
 
   function onButton(id, fn) {
